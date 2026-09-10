@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "algorithm": "ENTZ1 (X25519 + HKDF-SHA256 + AES-256-GCM)",
+  "recipient": {
+    "privateKeyHex": "45992f4ddbc15be7173fa614c0d71ac22a5a01461db125be76b9aa3aa84d0357",
+    "publicKeyHex": "fec5998a6e0d5e92389696ec6a13ed6d85e980f75dfcabab481287e78954a637",
+    "publicKey": "entz1pk__sWZim4NXpI4lpbsahPtbYXpgPdd_KurSBKH54lUpjc",
+    "fingerprintHex": "36978b57",
+    "fingerprint": "3697-8b57"
+  },
+  "derivation": {
+    "note": "Deterministic X25519 key derived from a WebAuthn PRF output; see docs/format.md.",
+    "prfSaltHex": "ddc9491d8d923e1ae18435a24f310f134cea31361178f52d0de7829d1207e9e8",
+    "prfHex": "a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7",
+    "seedHex": "d2a127ec0fff6d4ead99e27f793eabbfc7d98facb2a54666fbb712eb07fb3c04",
+    "publicKeyHex": "e48246a14d32e8a9705d7497cdd9976c7b880e24154c7645e0520fc3a6fea75a",
+    "publicKey": "entz1pk_5IJGoU0y6KlwXXSXzdmXbHuIDiQVTHZF4FIPw6b-p1o",
+    "fingerprintHex": "46c64bae",
+    "fingerprint": "46c6-4bae"
+  },
+  "vectors": [
+    {
+      "name": "ascii-title",
+      "ephemeralPrivateKeyHex": "bbacbe8afbf4ab13837125fedbad801098a558a467cc2162e13e058b53762e97",
+      "plaintext": "Fix the login redirect loop",
+      "token": "ENTZ1:ATaXi1eSuJkESQ4F6gkRu1rKDWheW3ZpOii3GJ8GHZ_8x5scfndRwt04kBa-irZ1jA4y3BTetSnjSp9tAa0XbAISO3KpE0Lso0LY2biOMBc"
+    },
+    {
+      "name": "unicode-emoji",
+      "ephemeralPrivateKeyHex": "b010ce8c770cc81dd82701c26c7599b645f4ef80949eb78f40c274c4b08137ff",
+      "plaintext": "Grüße, 世界 — 🔐🚀 déjà vu",
+      "token": "ENTZ1:ATaXi1fixTsQi4yF2z2wA2anTxFtrEtLWIPKxOnm67tRwGXPHYSROA3gf75LOwPFfcvt6DtITvY5WcM7b31DtY4PKSZ4QkrZt9z7CZSij9pYpM-2zDCGeLwlFA"
+    },
+    {
+      "name": "empty",
+      "ephemeralPrivateKeyHex": "79106be0470739b78055cab91efce3b873bc643ed0d84912977b2f764baffc24",
+      "plaintext": "",
+      "token": "ENTZ1:ATaXi1dMrEm6XToEpuOQ6EkqR5qnDEt__11FCBKs4lCF03qzHlQ2dmrx5zjXFD4zr3L1Mpw"
+    },
+    {
+      "name": "title-60",
+      "ephemeralPrivateKeyHex": "a77627100ddbffcf23e84e2ff28519135aaed310bafd88094806852206d84f3b",
+      "plaintext": "Rework the billing reconciliation job before quarter end!!!!",
+      "token": "ENTZ1:ATaXi1d_9_eKOd0jHonvfXTdVq0l3WRZ9wa9qZhASSVNjK44WaPjOuQQ51hHZeKQNTjL0MLuLQs64uS98qnMTvdgLvher0C0q8DTEGv7LBTUPNGw1vc_4ioMbvOAWzjYd5jEM9YZDKlplQ-yoBqp1_8"
+    },
+    {
+      "name": "markdown-body-2k",
+      "ephemeralPrivateKeyHex": "bd19c1851bfef2da50bfbb16c5e6943473882a5a3017200b08142d7a0f54e34e",
+      "plaintext": "# Candid notes\n\nSourced from a Slack DM. Do **not** paste this anywhere unencrypted.\n\n- item 1: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 2: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 3: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 4: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 5: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 6: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 7: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 8: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 9: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 10: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 11: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 12: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 13: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 14: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 15: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 16: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 17: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 18: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 19: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 20: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 21: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n- item 22: lorem ipsum dolor sit amet consectetur lorem ipsum dolor sit amet consectetur \n\n```ts\nconst x: number = 42;\n```\n\nClosing paragraph with a unicode dash — and an emoji 🔐.",
+      "token": "ENTZ1:ATaXi1eMW7PED8dzln1WYscVSCQ9906QX6W3VkEZLFi9puIBEjKFoKrcWbTy56AO1TtOcuR_ua1x8tMo07zGRJtSDjXSv_JJ4ElSINZZ8B8vEf6Q3S3X8ODp782yzX01MKr-pfqqXhGYOhI2Qp7t1nnkZYKQPfHyp0Mi6yNtU3zFMoBGwEqT7AiUyL4NHfYvX_tRGSX_b5YEf7uOKGS_h-PZQvaC17MbsRv5mSpkxpnetbu49lxbZpqzqtxCbGEFoA8kOipuYw18-wMq0rerl4OJ3hZMN2NBuIRZuc8iYJ8YLKEuTfgr1hlJcNMXIFitC5cu19VMWyEgt3iey8byX8CF3FwceS5t_0kHmQ1_8p0WBEOHXUuSbHPfnMz-RuyGTCKs7UA58Yv2rqygOnPMfJrprwIOYhwvJwJafujqgsMu9BVuxtK8f5ntFQNcpbd0ZI5yf_6YIxYVLlrsgRQHTjEsYNR0hC2pGQbh7bci9ZumZUqIJYdD91hM9p76ngCTRxr8ImtJ7_msCQ8gxmBI5lSIb-ecoYV2HDG5n8kRfD8wjVXC4Xgzx1H4FY3P1q4PNBzMCwrZpmEICYyKG7GK5L_sdnOM4JLiolgT61uTfzTx2mcqUbdIkEMICwwHM0tto8xQCUDuNd-akiXCtdGnavsuaZM3VE4gIPF5tbZ6KV20jwnostVRj0PMN1wiknt_YS3gdcHEpPlCjwpP_zxu-_05TGLqn9dJ8hisXOz4zpYV_LWpfQH10M-8pnGag9XOyWALk5iP3RxSDohnOP_6sia5zWyZfjsOMvgmbRTQs3vW9pOwvigeb0EbUDT1L8YVomIM3FrK1bjKZWF23Ydc5zFXDfaP4lnn8tWYHwPHJW-8p8jvzyDGsM2DKwGHSljops_vj9pTFh1Twk22GJ1Sy66e4wMeVHnNcN6-FzXuDa47jNq6k_OLxQtJXBLIDeKLJO5fqOwCOjKtkFmR-kJ4DMyhWQ9yhAsY5_OfItgcz0WUiOrqHfRKhTEwiiU-lG4u7b8kNbxZ0fQ4FbuanaXbdXoOsuWfCrXsaY8n_fDVOosh1mrvjPScx3PLgv8nvXBGljSfATgd4LF4Dz6qiAAoLbZWHzfKd4LaohFZ2Ic8wxtq7gWqFDarb0k_acxuOPFcUGqslkKD6gY3pKDZ_WpbxlyBEWf0vgxG1hLWPtMGD6Ift-OVaYUqzqBqXxhttfx-Yy60fcFRUNQkqHH7b4ngm0hQLkPczszKBzi3k0FVibT1Z-KYhEc5xlH_KxRWF4XkPgU9XMYqFd3GdgXHvgy5E8qRctMdQZzUhRF4JrYvcNA6nx9XRnqhEnedMKRFktuKdZ6tkwhD0XXHrmvE22XBwUs1prFe5jY5nF3N8H9rVIMuWKkpCWsXybvT_zrgl0JJ3q2pjS_42KaNQ_RaK4QQqpUBOXOjme73bX_S1g1x44Mzn5UHGVjbrLVnHmM8zYGxYr5hVZrSgMlbBZK9wJcAbbZoO03AmejgV093v2lUEW0mohfN5HXQML-A9aPS_f2hAKKh5FlshsjF7jkCIagr5Jdc6e8c0-UNuRNlnGzTEjkzozd9iKX6v9-bnHR-6q8UREefTh0e2lU_Sf-d_gL6N96azXot0YqMkPvFsPhS0Pxpzqc2HIxYsxmVkhw4qEMDkH0hjDB1rqfi849cr2M8r-CL6GCOnklagD7eIlAgH8PJsFQl_nLxWUKnBPduZc-0wvEyOaoSba9t9x6FWe8WThTlLPq5K_HOA_lLOjYNB0eY558Z4bcMGA--5ZhjvXBOXyGq4dwvN1U5OHyZvkP9RjTJECGc_q5E9g-wI8s6AxJCi1NFIl_0M1dq4dcG9aRfFIHZUCAy0ifbqBOwZZMAZta98apkI1Hc5StWQne533W9Wz4oIl0ffebnshZ5R9F-NaSa9M9RSir20GVAg9KFeMFgk8UAjNgQ3O5JnTlL1-xhBVH5Ihh9U25iFQai8rG1B5yvxh9J--qOlkj4XaU7ozJ3GMfQcpuEByZ8ivOXOJ0M9c6RK2A2l8SfKM0EmPO1gha9gLkWmDPLCULhVlMgbQOcPKeSvSJzdZ1c9RIXtfpbdoqduBphuYpK-nlkd0gszI-v2Ys69rF91KQv_wN3hnfFdGcLocKzkGqor7uNhmqWnlfU8ul5xUiD-_8cl5w3T2Q0C4AgZDYhpzesOw02B7Bk7CAnAScg_4YU7SUCwrsLGphhiS4lH7kaOHNW1FAYflBi2I0bCpCPPTAvmuD90FL-lymRnV68kkmvim9klTXBo2R0YsmmvDPah7_IHMINDPWTXacAP_mDDrK-7jmK5r71hvoDsLzNYRhiDIs8y51WL8L36MN3jKPCXq_46pjYwmHyNGK3dnyBmuWhDgtNYqWSqrwK2Gvapnq0j3-ecyRMxJUkILxXEKdNA-uRmxKrhqiCcUdkf__tncc0VVVwoew3Lvj_35MkAFFxVXZMUFkrWBNsnaGVu8DtEwARzmVAvAYskeBUgeDsdpFIqzXiszNBgqzleusQBsvn3hatPoluKbJYlwAbJeZnRiFRhJj0nrdV5h1xTkIv7CKclfkFD8LvtsrjJukn4wbJaVL9ypZWj8N2QIskVVUH1cruNDRNdzmJUj37vZaWvJVmKFS-njKaCpYaX_jlex9sMlKVO1ekcyGTXo7jvlPnP96oyq-azlGmfbhxgw0IV63-Dq0ZM1_TSvi7DcgjE9GpeKQD_eDf0vwuvU9po_NWDJLY4FIR0l9Pv_OlAbNQWO0mLoHFzI21RhB_AO4JIWvvyxBYZRg6kANG-OWNzUCicexLD4WEM8sUgXBT4VVQiWkmfhjbc3UQBB0DTUghDVITz-gpTo2drPsxbbX5DdSTyod4GFen7Ndi1oJkrMVt3N7t0g-XU6Qpvdnlmma1jpNZQbZD6QlH7oWbJGLzPHIHwFg"
+    },
+    {
+      "name": "with-newline",
+      "ephemeralPrivateKeyHex": "95a2fe619b6c54d6ed95bc124cf7d14386e5278213da27d4a4031d63dfb0bc36",
+      "plaintext": "line one\nline two\n",
+      "token": "ENTZ1:ATaXi1duU8avx2R842U0dfJk0bdbPiZaYwpP7UgbWtCj7V_YRdPaDK79A3UP2t-DvtrJuXYeOyvSmVExRgYzikjKOxBgvt0"
+    }
+  ],
+  "foreign": {
+    "note": "Encrypted to a different recipient; decrypting with `recipient` must fail with FPR_MISMATCH.",
+    "privateKeyHex": "343b18478a06625218388f2873d34f4ae8c3a9a20e7f0b9c9d5f719ab7813c41",
+    "publicKey": "entz1pk_VANVhw-Ns5nGsgTRQk6Izj6MhR54_5uBHwxpS1vszUY",
+    "fingerprintHex": "33cfef49",
+    "fingerprint": "33cf-ef49",
+    "plaintext": "Not for you",
+    "ephemeralPrivateKeyHex": "4b267b22c88db8cfae03bf015119bc922b8e9bc029978e58fd6e2ea8df3d4f90",
+    "token": "ENTZ1:ATPP70mOkOr0t6JN_QWN816XgXTPRb6AM0_kR2SqqgCMelHCGk06_S-Nl8z5uKTQp7bjyJOjgRJ7e6gFYYH8tA"
+  }
+}

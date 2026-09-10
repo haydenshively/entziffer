@@ -1,0 +1,37 @@
+{
+  "name": "entziffer",
+  "version": "0.1.0",
+  "description": "Encrypt Linear issue titles and descriptions to an entziffer public key (ENTZ1).",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "encryption",
+    "linear",
+    "x25519",
+    "cli",
+    "entziffer"
+  ],
+  "bin": {
+    "entziffer": "bin/entziffer.js"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@entziffer/core": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "tsdown": "0.23.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.0"
+  }
+}
