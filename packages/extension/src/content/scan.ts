@@ -1,15 +1,14 @@
 import { findTokens, MARKER } from "@entziffer/core";
 
 /**
- * Anything matching this is treated as user-editable and its DOM text is never modified: an
- * in-place replacement inside a rich-text editor would let the host application persist the
- * plaintext back to its server. See docs/threat-model.md.
+ * Anything matching this is treated as user-editable: the pane offers to edit it, and writing into
+ * it is the one thing that can persist text back to the host application. See docs/threat-model.md.
  */
 export const EDITABLE_SELECTOR =
   '[contenteditable]:not([contenteditable="false"]), .ProseMirror, [role="textbox"], input, textarea';
 
-/** Nodes this extension itself inserted; scanning and mutation handling must ignore them. */
-export const OWN_SELECTOR = "[data-entz-plain], [data-entz-badge], [data-entz-host]";
+/** The extension's own shadow hosts; scanning and mutation handling must ignore them. */
+export const OWN_SELECTOR = "[data-entz-host]";
 
 /** Elements whose text is code or metadata rather than prose, and must never be rewritten. */
 export const OPAQUE_SELECTOR = "script, style, noscript, template, title, svg";
@@ -62,6 +61,18 @@ export interface TokenLocation {
   startOffset: number;
   endNode: Text;
   endOffset: number;
+}
+
+export function rangeOf(loc: TokenLocation): Range {
+  const doc = loc.startNode.ownerDocument as Document;
+  const range = doc.createRange();
+  range.setStart(loc.startNode, loc.startOffset);
+  range.setEnd(loc.endNode, loc.endOffset);
+  return range;
+}
+
+export function isAttached(loc: TokenLocation): boolean {
+  return loc.startNode.isConnected && loc.endNode.isConnected;
 }
 
 export function isEditable(node: Node): boolean {

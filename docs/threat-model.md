@@ -98,28 +98,40 @@ Failure modes: an authenticator without PRF support answers `PRF_UNSUPPORTED` an
 stored; dismissing the prompt is `PASSKEY_CANCELLED` and leaves the state unchanged; a passkey
 that derives a different key answers `KEY_MISMATCH` rather than replacing your identity.
 
-## Rendering: in place vs overlay-only
+## Rendering: masked in the page, plaintext in the pane
 
-The extension shows plaintext two ways, and the trade-off is legibility against how much of the
-page's own DOM it touches.
+There is one rendering mode, and it never touches the page's text. The only node the extension
+adds to a page is the shadow host for its own pane.
 
-- **In place (the default).** Inert text — list rows, board cards, notifications, read-only
-  descriptions — has its ciphertext replaced by a `<span data-entz-plain>` carrying the
-  plaintext, so selection, wrapping, find-in-page, and copy behave normally. The span inherits
-  the surrounding typography and adds only a thin dotted underline. The ciphertext is kept in
-  `data-entz-ct` and put back on lock or on any settings change. The residual risk is that the
-  host page's own JavaScript can read the plaintext out of the DOM. entziffer never writes into
-  an editor — `[contenteditable]`, `.ProseMirror`, `[role="textbox"]`, `input`, `textarea` — so
-  nothing round-trips back to the server, but a page that scrapes its own rendered text would
-  see decrypted content.
-- **Overlay-only** (`overlayOnly`, off by default). Page text is never modified: the plaintext
-  is drawn in a shadow-DOM overlay pinned to the token's client rects, and clicking it or
-  pressing `Esc` reveals the ciphertext underneath. This is what editable regions always get.
-  It removes the DOM-scraping risk at the cost of text you cannot select or search.
+- **Masked in the page.** Every known token — a list row, a board card, a notification, a
+  read-only description, a token inside an editor — is marked with a CSS Custom Highlight,
+  which styles a live `Range` without mutating the DOM. That is what makes it safe inside an
+  editor: nothing round-trips back to the server. The highlight makes the ciphertext glyphs
+  transparent and fills exactly the space they occupy with a solid tint, like a censor's bar, so the token reads
+  as redacted, the layout does not shift, and selecting or copying still yields the ciphertext.
+  A token encrypted to somebody else gets a grey version of the same mask. Hovering a pane
+  entry focuses its token in the page — a stronger fill with an underline — and dims the others; hovering a
+  masked token marks its pane entry. Nothing animates.
+- **The pane.** Plaintext appears in exactly one place: a floating pane in its own shadow root,
+  listing every token on the page in document order. Inert tokens are shown read-only with a
+  **Copy** button. A token inside an editor — `[contenteditable]`, `.ProseMirror`,
+  `[role="textbox"]`, `input`, `textarea` — is editable in the pane instead.
 
-Overlay-only is a kill switch, not a hardened mode: the plaintext still exists in the tab's
-process, and the overlay is still injected into the page's document. Hardening it — an isolated
-rendering surface, no plaintext reachable from page script — is tracked in
+Each editable pane entry is a text box: what you type there is re-encrypted to your own key
+(debounced) and written back into the field as ciphertext, so the plaintext never enters the
+editor unless you click **Insert plaintext** — the one thing in entziffer that puts cleartext
+into an editor. It is never automatic: you click it, the ciphertext in that field is replaced by
+whatever the pane's box holds, through the editor's own input pipeline, and saving the field
+afterwards persists the plaintext to the host application, visible to everyone with access to
+it. That is the intended path for declassifying an issue; the only other write an editor ever
+sees is a token replacing a token, both through the same pipeline.
+
+Because the page's own text is never rewritten, a page that scrapes its rendered content sees
+ciphertext. Plaintext exists only inside the extension's shadow root: the pane's text boxes are
+the only DOM nodes on a page that ever hold it. That is not isolation — the pane still lives in
+the tab's document and the plaintext still exists in the tab's process, so page script that
+reaches into the shadow root can read it. Hardening that — an isolated rendering surface, no
+plaintext reachable from page script — is tracked in
 [issue #1](https://github.com/haydenshively/entziffer/issues/1).
 
 ## Cryptographic caveats

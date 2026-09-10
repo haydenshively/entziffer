@@ -85,14 +85,18 @@ identity and re-encrypting existing issues, which entziffer does not do for you.
 
 ### Locking and unlocking
 
-- The first encrypted token in a new browser session shows a 🔐 badge titled *Click to unlock
-  entziffer*. Clicking it opens an unlock tab that runs the Touch ID prompt and closes itself;
-  the page then decrypts. The action popup has **Unlock** and **Lock now** buttons. (The
-  prompt has to run in a tab: opening the OS dialog closes the popup.)
+- The plaintext pane carries a pill — a padlock and a token count — under its bottom-left
+  corner. In a new browser session it reads *Locked*, and the pane offers an **Unlock** button;
+  clicking either the collapsed pill or that button opens an unlock tab that runs the Touch ID
+  prompt and closes itself, and the pane then fills with plaintext. Clicking the pill otherwise
+  collapses the pane into it or opens the pane again — the pill never moves, and its padlock is
+  shut while the pane is collapsed and open while it is expanded. The action popup has
+  **Unlock** and **Lock now** buttons. (The prompt has to run in a tab: opening the OS dialog
+  closes the popup.)
 - The session ends on browser restart, on extension reload, on **Lock now**, and after the
   auto-lock timeout — 1, 4, 12 (default), or 24 hours, chosen on the options page. Locking is
-  immediate on every open tab: already-decrypted text reverts to
-  ciphertext and overlays disappear without a reload.
+  immediate on every open tab: the pane empties without a reload. The page's own text was
+  never changed, so there is nothing to strip.
 
 If something goes wrong:
 
@@ -195,20 +199,20 @@ npx entziffer@latest encrypt --to me "hello from entziffer"
 npx entziffer@latest inspect "ENTZ1:..."
 
 # 3. The extension decrypts it: paste the token into any Linear issue comment box
-#    preview, or a Linear issue you own, and confirm the plaintext appears.
+#    preview, or a Linear issue you own, and confirm the plaintext appears in the pane.
 ```
 
 Then the end-to-end test: ask Claude Code *"file a private Linear issue titled 'entziffer
 smoke test' saying it worked"*. You should get an issue URL; opening it in Chrome should
-show the plaintext, and opening it in a browser without the extension (or asking a
+show the plaintext in the pane, and opening it in a browser without the extension (or asking a
 teammate) should show `ENTZ1:…`.
 
-If step 3 shows ciphertext in Chrome:
+If step 3 shows no plaintext in Chrome:
 
-- Check the fingerprint from `inspect` against the one in the extension popup — encrypting
-  to the wrong recipient shows a lock badge instead of text.
-- Check that entziffer is unlocked: a 🔐 badge means the session is locked, not that the
-  token is wrong.
+- Check the fingerprint from `inspect` against the one in the extension popup — a token
+  encrypted to the wrong recipient is masked in grey and has no pane entry to read.
+- Check that entziffer is unlocked: a pill reading *Locked* means the session is locked, not
+  that the token is wrong.
 - Check that the origin is enabled: open the popup on that tab, which says whether entziffer
   runs there and offers **Enable on this site** when it does not.
 

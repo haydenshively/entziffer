@@ -22,22 +22,3 @@ export function createShadowHost(): { host: HTMLElement; root: ShadowRoot } {
   document.body.appendChild(host);
   return { host, root };
 }
-
-const INHERITED_PROPERTIES = [
-  "font-family",
-  "font-size",
-  "font-weight",
-  "font-style",
-  "letter-spacing",
-  "line-height",
-  "text-transform",
-  "color",
-] as const;
-
-/** Copies the underlying element's typography so an overlay lines up with the text it hides. */
-export function copyTypography(from: Element, to: HTMLElement): void {
-  const computed = getComputedStyle(from);
-  for (const property of INHERITED_PROPERTIES) {
-    to.style.setProperty(property, computed.getPropertyValue(property));
-  }
-}

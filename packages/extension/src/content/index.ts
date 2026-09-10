@@ -1,32 +1,60 @@
-import { formatFingerprint, parseEnvelope } from "@entziffer/core";
-import { type Broadcast, DEFAULT_SETTINGS, type Settings, send } from "../shared/messages.js";
-import { mountOverlay, type Overlay } from "./overlay.js";
-import { installPopover } from "./popover.js";
 import {
-  BADGE_ATTR,
-  insertBadge,
-  insertLockBadge,
-  isAttached,
-  LOCK_BADGE_ATTR,
-  removeLockBadges,
-  replaceInPlace,
-  revertAll,
-} from "./render.js";
-import { isEditable, isOwnNode, scan, type TokenLocation } from "./scan.js";
+  type EntzPublicKey,
+  encrypt,
+  formatFingerprint,
+  importPublicKey,
+  parseEnvelope,
+} from "@entziffer/core";
+import { type Broadcast, send } from "../shared/messages.js";
+import { dimLayer, focusLayer, foreignLayer, maskLayer } from "./highlight.js";
+import { replaceInEditor } from "./insert.js";
+import {
+  isPaneEvent,
+  type PaneEntry,
+  type PaneHandlers,
+  preservingPaneFocus,
+  removePane,
+  renderPane,
+  setActive,
+} from "./pane.js";
+import { isAttached, isOwnNode, rangeOf, scan, type TokenLocation } from "./scan.js";
 
 const DEBOUNCE_MS = 100;
 const CACHE_LIMIT = 2000;
 const MAX_ROOTS = 32;
+/** Slack a token's client rects get for hit-testing the pointer, in CSS pixels. */
+const HIT_SLACK_PX = 2;
 
 type CacheEntry = { ok: true; text: string } | { ok: false; code: string };
 
-const cache = new Map<string, CacheEntry>();
-const ownNodes = new WeakSet<Node>();
-const dismissed = new WeakMap<Text, { data: string; tokens: Set<string> }>();
-let overlays: Overlay[] = [];
+const LOCKED: CacheEntry = { ok: false, code: "LOCKED" };
 
-let settings: Settings = DEFAULT_SETTINGS;
-/** Set as soon as one token comes back `LOCKED`, so overlay-only pages can still report the state. */
+/** One token the pane speaks for: the live range is what the highlight layers style. */
+interface Known {
+  key: string;
+  loc: TokenLocation;
+  range: Range;
+  result: CacheEntry;
+}
+
+const cache = new Map<string, CacheEntry>();
+let known: Known[] = [];
+let nextKey = 0;
+
+let identity: string | null = null;
+let recipient: EntzPublicKey | null = null;
+/**
+ * Ciphertext this content script just wrote into an editor, mapped to the pane entry that produced
+ * it: the rescan sees a brand-new token where the old one was, and reusing the key keeps the row —
+ * and the caret inside it — alive across the rewrite.
+ */
+const pendingRewrite = new Map<string, string>();
+/** Where the cursor is and what it is over; `null` when it is over nothing of ours. */
+let pointer: { source: "page" | "pane"; key: string } | null = null;
+/** The entry whose textarea has keyboard focus, independent of where the cursor is. */
+let typing: string | null = null;
+let hoverFrame = 0;
+
 let locked = false;
 let observer: MutationObserver | null = null;
 let pending = new Set<Node>();
@@ -50,86 +78,196 @@ function cacheSet(token: string, entry: CacheEntry): void {
   }
 }
 
-function isDismissed(loc: TokenLocation): boolean {
-  const state = dismissed.get(loc.startNode);
-  if (state === undefined) return false;
-  if (state.data !== loc.startNode.data) {
-    dismissed.delete(loc.startNode);
-    return false;
-  }
-  return state.tokens.has(loc.token);
-}
-
-function dismiss(overlay: Overlay): void {
-  const state = dismissed.get(overlay.loc.startNode) ?? {
-    data: overlay.loc.startNode.data,
-    tokens: new Set<string>(),
-  };
-  state.data = overlay.loc.startNode.data;
-  state.tokens.add(overlay.token);
-  dismissed.set(overlay.loc.startNode, state);
-  overlay.destroy();
-  overlays = overlays.filter((o) => o !== overlay);
-}
-
-function findOverlay(loc: TokenLocation): Overlay | undefined {
-  return overlays.find(
-    (o) =>
-      o.token === loc.token &&
-      o.loc.startNode === loc.startNode &&
-      o.loc.startOffset === loc.startOffset,
+function findKnown(loc: TokenLocation): Known | undefined {
+  return known.find(
+    (k) =>
+      k.loc.token === loc.token &&
+      k.loc.startNode === loc.startNode &&
+      k.loc.startOffset === loc.startOffset,
   );
 }
 
-function hasBadgeBefore(loc: TokenLocation): boolean {
-  if (loc.startOffset !== 0) return false;
-  const previous = loc.startNode.previousSibling;
-  return previous instanceof Element && previous.hasAttribute(BADGE_ATTR);
+/** A range whose text is no longer its token belongs to an edit the page made underneath us. */
+function isStale(k: Known): boolean {
+  if (!isAttached(k.loc)) return true;
+  try {
+    return k.range.toString() !== k.loc.token;
+  } catch {
+    return true;
+  }
 }
 
-function renderToken(loc: TokenLocation, entry: CacheEntry): void {
-  if (!isAttached(loc) || isDismissed(loc)) return;
+const layers = () => [maskLayer(), focusLayer(), dimLayer(), foreignLayer()];
 
-  if (!entry.ok) {
-    if (entry.code === "LOCKED") {
-      locked = true;
-      if (loc.editable || settings.overlayOnly || document.querySelector(`[${LOCK_BADGE_ATTR}]`)) {
-        return;
+function forget(k: Known): void {
+  for (const layer of layers()) layer.delete(k.range);
+}
+
+function clearHighlights(): void {
+  for (const layer of layers()) layer.clear();
+}
+
+/**
+ * Every known token is masked in the page, in exactly one layer: the plain mask, or the foreign
+ * mask for a token this key cannot open. While `active` names an entry, it takes the focus layer
+ * and every other token dims.
+ */
+function paint(active: string | null): void {
+  clearHighlights();
+  for (const k of known) {
+    if (active === null) (k.result.ok || locked ? maskLayer() : foreignLayer()).add(k.range);
+    else (k.key === active ? focusLayer() : dimLayer()).add(k.range);
+  }
+}
+
+/**
+ * One rule decides what is highlighted on both sides: the cursor wins, then the textarea being
+ * typed in. The pane only scrolls to an entry the cursor found in the page.
+ */
+function renderActive(): void {
+  const active = pointer?.key ?? typing;
+  paint(active);
+  setActive(active, pointer?.source === "page");
+}
+
+function setPointer(next: typeof pointer): void {
+  if (pointer?.source === next?.source && pointer?.key === next?.key) return;
+  pointer = next;
+  renderActive();
+}
+
+async function reencrypt(key: string, value: string): Promise<void> {
+  const to = await recipientKey();
+  if (to === null || value === "") return;
+  const token = await encrypt(value, to);
+  // Encrypting takes long enough for an Insert plaintext click, or the page itself, to have moved
+  // the token out from under this range; writing through a stale one would corrupt the field.
+  const k = known.find((entry) => entry.key === key);
+  if (k === undefined || isStale(k)) return;
+  cacheSet(token, { ok: true, text: value });
+  pendingRewrite.set(token, key);
+  if (!preservingPaneFocus(() => replaceInEditor(k.loc, token))) pendingRewrite.delete(token);
+}
+
+const handlers: PaneHandlers = {
+  insert(key, value) {
+    const k = known.find((entry) => entry.key === key);
+    if (k === undefined || isStale(k) || !replaceInEditor(k.loc, value)) return false;
+    forget(k);
+    known = known.filter((entry) => entry !== k);
+    refreshPane();
+    return true;
+  },
+  edit(key, value) {
+    void reencrypt(key, value);
+  },
+  hover(key) {
+    setPointer(key === null ? null : { source: "pane", key });
+  },
+  typing(key) {
+    typing = key;
+    renderActive();
+  },
+  unlock() {
+    void send({ type: "requestUnlock" });
+  },
+};
+
+async function recipientKey(): Promise<EntzPublicKey | null> {
+  if (identity === null) return null;
+  if (recipient !== null) return recipient;
+  try {
+    recipient = await importPublicKey(identity);
+  } catch {
+    recipient = null;
+  }
+  return recipient;
+}
+
+async function refreshIdentity(): Promise<void> {
+  const reply = await send({ type: "getStatus" });
+  const next = reply.ok ? (reply.data.status.identity?.publicKey ?? null) : null;
+  if (next === identity) return;
+  identity = next;
+  recipient = null;
+}
+
+function hitTest(x: number, y: number): string | null {
+  for (const k of known) {
+    for (const rect of k.range.getClientRects()) {
+      if (
+        x >= rect.left - HIT_SLACK_PX &&
+        x <= rect.right + HIT_SLACK_PX &&
+        y >= rect.top - HIT_SLACK_PX &&
+        y <= rect.bottom + HIT_SLACK_PX
+      ) {
+        return k.key;
       }
-      const badge = insertLockBadge(loc, () => void send({ type: "requestUnlock" }));
-      if (badge !== null) ownNodes.add(badge);
-      return;
     }
-    if (entry.code !== "FPR_MISMATCH") return;
-    if (loc.editable || settings.overlayOnly || hasBadgeBefore(loc)) return;
-    let label = "unknown";
-    try {
-      label = formatFingerprint(parseEnvelope(loc.token).fpr);
-    } catch {
-      return;
-    }
-    const badge = insertBadge(loc, label);
-    if (badge !== null) ownNodes.add(badge);
+  }
+  return null;
+}
+
+function onPointerMove(event: MouseEvent): void {
+  if (known.length === 0 || hoverFrame !== 0) return;
+  if (isPaneEvent(event)) {
+    if (pointer?.source === "page") setPointer(null);
     return;
   }
+  const { clientX, clientY } = event;
+  hoverFrame = requestAnimationFrame(() => {
+    hoverFrame = 0;
+    if (pointer?.source === "pane") return;
+    const key = hitTest(clientX, clientY);
+    setPointer(key === null ? null : { source: "page", key });
+  });
+}
 
-  if (!loc.editable && !settings.overlayOnly) {
-    ownNodes.add(replaceInPlace(loc, entry.text));
+function onPointerLeave(): void {
+  if (pointer?.source === "page") setPointer(null);
+}
+
+function fingerprintOf(token: string): string | null {
+  try {
+    return formatFingerprint(parseEnvelope(token).fpr);
+  } catch {
+    return null;
+  }
+}
+
+function toEntry(k: Known): PaneEntry {
+  return {
+    key: k.key,
+    text: k.result.ok ? k.result.text : null,
+    fingerprint:
+      !k.result.ok && k.result.code === "FPR_MISMATCH" ? fingerprintOf(k.loc.token) : null,
+    editable: k.loc.editable,
+  };
+}
+
+function refreshPane(): void {
+  if (known.length === 0) {
+    removePane();
     return;
   }
+  known.sort((a, b) => a.range.compareBoundaryPoints(Range.START_TO_START, b.range));
+  renderPane({ entries: known.map(toEntry), locked, writable: identity !== null, handlers });
+  paint(pointer?.key ?? typing);
+}
 
-  const existing = findOverlay(loc);
+function remember(loc: TokenLocation, result: CacheEntry): void {
+  const existing = findKnown(loc);
   if (existing !== undefined) {
-    existing.reposition();
+    existing.result = result;
     return;
   }
-  const overlay = mountOverlay(loc, entry.text, dismiss);
-  ownNodes.add(overlay.element);
-  overlays.push(overlay);
+  const reused = pendingRewrite.get(loc.token);
+  pendingRewrite.delete(loc.token);
+  known.push({ key: reused ?? `entz-${nextKey++}`, loc, range: rangeOf(loc), result });
 }
 
 async function processPendingRoots(): Promise<void> {
-  const roots = pending.size > MAX_ROOTS ? [document.body] : [...pending];
+  const roots: Node[] = pending.size > MAX_ROOTS ? [document.body] : [...pending];
   pending = new Set();
 
   const seen = new Map<Text, Set<string>>();
@@ -148,12 +286,15 @@ async function processPendingRoots(): Promise<void> {
       locations.push(loc);
     }
   }
-  overlays = overlays.filter((o) => {
-    if (isAttached(o.loc)) return true;
-    o.destroy();
+  known = known.filter((k) => {
+    if (!isStale(k)) return true;
+    forget(k);
     return false;
   });
-  if (locations.length === 0) return;
+  if (locations.length === 0) {
+    refreshPane();
+    return;
+  }
 
   const missing = [...new Set(locations.map((l) => l.token))].filter(
     (t) => cacheGet(t) === undefined,
@@ -167,14 +308,12 @@ async function processPendingRoots(): Promise<void> {
       else cacheSet(missing[i] as string, result);
     }
   }
-  // Reverse document order: an in-place replacement shifts the offsets of every later token
-  // that shares its text node, but never those of an earlier one.
-  for (let i = locations.length - 1; i >= 0; i--) {
-    const loc = locations[i] as TokenLocation;
-    const entry =
-      cacheGet(loc.token) ?? (locked ? ({ ok: false, code: "LOCKED" } as const) : undefined);
-    if (entry !== undefined) renderToken(loc, entry);
+  for (const loc of locations) {
+    if (!isAttached(loc)) continue;
+    const entry = cacheGet(loc.token) ?? (locked ? LOCKED : undefined);
+    if (entry !== undefined) remember(loc, entry);
   }
+  refreshPane();
 }
 
 function schedule(root: Node): void {
@@ -187,35 +326,29 @@ function onMutations(records: MutationRecord[]): void {
   for (const record of records) {
     const target =
       record.type === "characterData" ? (record.target.parentNode ?? record.target) : record.target;
-    if (ownNodes.has(record.target) || isOwnNode(target)) continue;
-    if (record.type === "attributes") {
-      if (isEditable(target)) revertAll(target as Element);
-      schedule(target);
-      continue;
-    }
+    if (isOwnNode(target)) continue;
     if (record.type === "childList") {
       const touched = [...record.addedNodes, ...record.removedNodes];
-      if (touched.length > 0 && touched.every((n) => ownNodes.has(n) || isOwnNode(n))) continue;
+      if (touched.length > 0 && touched.every((n) => isOwnNode(n))) continue;
     }
     schedule(target);
   }
 }
 
-/** Leaves the page as entziffer found it: no overlays, and ciphertext back in every text node. */
+/** Leaves the page as entziffer found it: no pane and no highlights; the text was never touched. */
 function stop(): void {
   observer?.disconnect();
   observer = null;
-  for (const overlay of overlays) overlay.destroy();
-  overlays = [];
-  revertAll(document);
+  clearHighlights();
+  known = [];
+  pendingRewrite.clear();
+  pointer = null;
+  typing = null;
+  removePane();
 }
 
 async function start(): Promise<void> {
-  const reply = await send({ type: "getSettings" });
-  const next = reply.ok ? reply.data.settings : settings;
-  const rendersDifferently = next.overlayOnly !== settings.overlayOnly;
-  settings = next;
-  if (rendersDifferently) stop();
+  await refreshIdentity();
   if (observer === null) {
     observer = new MutationObserver(onMutations);
     observer.observe(document, {
@@ -230,19 +363,10 @@ async function start(): Promise<void> {
   schedule(document.body);
 }
 
-document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape" || overlays.length === 0) return;
-  for (const overlay of [...overlays]) dismiss(overlay);
-});
-
-chrome.storage.onChanged.addListener((_changes, area) => {
-  if (area === "local") void start();
-});
-
 chrome.runtime.onMessage.addListener((message: Broadcast) => {
   if (message.type === "unlocked") {
     locked = false;
-    removeLockBadges();
+    void refreshIdentity();
     schedule(document.body);
     return;
   }
@@ -253,5 +377,6 @@ chrome.runtime.onMessage.addListener((message: Broadcast) => {
   void start();
 });
 
-installPopover();
+document.addEventListener("mousemove", onPointerMove, { passive: true });
+document.addEventListener("mouseleave", onPointerLeave);
 void start();

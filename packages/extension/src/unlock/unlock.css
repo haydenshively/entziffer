@@ -1,39 +1,67 @@
-:root {
-  color-scheme: light dark;
-}
+@import "../shared/glass.css";
+
 body {
-  font:
-    15px / 1.6 system-ui,
-    sans-serif;
-  margin: 0;
   display: grid;
   place-items: center;
   min-height: 100vh;
-}
-main {
-  max-width: 34ch;
   padding: 24px;
+}
+
+.card {
+  width: min(360px, 100%);
+  padding: 32px 30px 26px;
   text-align: center;
 }
+
+.glyph {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 18px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--glass-tint));
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    0 8px 22px color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+.glyph svg {
+  width: 44px;
+  height: 44px;
+}
+
 h1 {
-  font-size: 1.2rem;
-  margin: 0 0 8px;
+  margin: 0;
+  font-size: 19px;
 }
-.muted {
-  opacity: 0.75;
+
+#state {
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  min-height: 21px;
 }
-.small {
-  font-size: 0.85em;
+
+#state[data-error] {
+  color: var(--danger);
 }
-[data-error] {
-  color: #b3261e;
-  opacity: 1;
+
+#retry {
+  margin-top: 18px;
+  padding: 9px 20px;
 }
-button.primary {
-  font: inherit;
-  padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid currentColor;
-  background: transparent;
-  cursor: pointer;
+
+.footnote {
+  margin: 22px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Last, so it outranks the equal-specificity display rules above. */
+[hidden] {
+  display: none !important;
 }

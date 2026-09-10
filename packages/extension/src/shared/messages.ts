@@ -6,7 +6,6 @@ export const AUTO_LOCK_CHOICES = [60, 240, 720, 1440] as const;
 export type AutoLockMinutes = (typeof AUTO_LOCK_CHOICES)[number];
 
 export interface Settings {
-  overlayOnly: boolean;
   /** Origins (`https://example.com`) the user enabled; each one holds its own host permission. */
   enabledOrigins: string[];
   /** Set by "Enable on all sites", which requests `<all_urls>`. */
@@ -100,7 +99,6 @@ export type Response<K extends RequestType = RequestType> =
   | { ok: false; code: ErrorCode; message: string };
 
 export const DEFAULT_SETTINGS: Settings = {
-  overlayOnly: false,
   enabledOrigins: [],
   allSites: false,
   autoLockMinutes: 720,

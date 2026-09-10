@@ -120,6 +120,7 @@ function renderOriginList(id: string, origins: string[], onRemove: (o: string) =
     label.textContent = origin;
     const remove = document.createElement("button");
     remove.type = "button";
+    remove.className = "glass-button";
     remove.textContent = "Remove";
     remove.addEventListener("click", () => onRemove(origin));
     li.append(label, remove);
@@ -128,7 +129,6 @@ function renderOriginList(id: string, origins: string[], onRemove: (o: string) =
 }
 
 function renderSettings(): void {
-  ($("overlay-only") as HTMLInputElement).checked = settings.overlayOnly;
   ($("all-sites") as HTMLInputElement).checked = settings.allSites;
   renderOriginList("enabled-list", settings.enabledOrigins, (origin) => {
     void disableOrigin(origin);
@@ -224,10 +224,6 @@ $("add-origin").addEventListener("click", async () => {
   }
   field.value = "";
   await patch({ enabledOrigins: [...settings.enabledOrigins, origin] });
-});
-
-$("overlay-only").addEventListener("change", (event) => {
-  void patch({ overlayOnly: (event.target as HTMLInputElement).checked });
 });
 
 $("auto-lock").addEventListener("change", (event) => {

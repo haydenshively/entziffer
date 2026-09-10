@@ -2,11 +2,11 @@
 
 Linear has no private issues: anyone in the workspace can read every title and
 description. **entziffer** encrypts an issue's title and description to your public key
-before it ever reaches Linear, and a Chrome extension decrypts them back in place while
-you browse — issue list, board, detail view, notifications, search results. To everyone
-else the issue is a `ENTZ1:…` string. The private key never leaves your browser profile,
-so a Claude Code agent (or a teammate's script) can *write* private issues for you with
-nothing but your public key.
+before it ever reaches Linear, and a Chrome extension decrypts them into a floating pane
+beside the page while you browse — issue list, board, detail view, notifications, search
+results. To everyone else the issue is a `ENTZ1:…` string. The private key never leaves your
+browser profile, so a Claude Code agent (or a teammate's script) can *write* private issues
+for you with nothing but your public key.
 
 ```
 agent/CLI (public key only) ──ENTZ1:<b64url>──▶ Linear ──▶ Chrome extension (private key) ──▶ plaintext shown to you
@@ -29,6 +29,18 @@ identical key after one Touch ID — your public key and every teammate's CLI co
 working. The wire format is specified byte for byte in [docs/format.md](docs/format.md), and
 [`reference/encrypt.mjs`](reference/encrypt.mjs) is a single dependency-free file that
 implements it if you would rather not trust npm.
+
+**Reading and editing an encrypted field.** entziffer never rewrites the page's text. Every
+token stays exactly as the page rendered it and is masked with a CSS Custom Highlight — the
+ciphertext goes transparent and the space it occupies is filled with a solid tint, like a censor's bar, so it
+reads as redacted, nothing shifts, and selecting or copying still yields the ciphertext. The
+plaintext appears in a floating pane beside the page — think a Markdown preview next to the
+source — which lists every token on the page, editable and inert alike. Inert tokens are
+read-only with a *Copy* button; a token inside an editor is editable in the pane, and what you
+type there is re-encrypted to your own key and written back into the field as ciphertext, so
+the plaintext never enters the editor unless you click *Insert plaintext*, which replaces the
+ciphertext in the field for real — saving it then stores the plaintext in Linear, which is how
+you declassify or edit an issue.
 
 ## Quick start (5 minutes)
 
@@ -63,10 +75,11 @@ Full details, per-repo skill installs, and a verification step: [docs/install.md
 ## Locking and unlocking
 
 At rest the extension holds `{credentialId, publicKey, fingerprint}` and nothing else. The
-first encrypted token you meet in a new browser session shows a 🔐 badge; click it, approve
-the Touch ID prompt, and the page decrypts. The derived key lives in the extension's session
-store until the browser restarts, until **Lock now**, or until the auto-lock timeout (1, 4, 12,
-or 24 hours; 12 by default).
+pane carries a pill — a padlock and a token count — under its bottom-left corner, which reads
+*Locked* for a new browser session; click it, approve the Touch ID prompt, and the plaintext
+appears in the pane. The derived key lives in the extension's session store until the browser
+restarts, until **Lock now**, or until the auto-lock timeout (1, 4, 12, or 24 hours; 12 by
+default).
 
 | Adversary | Result |
 | --- | --- |

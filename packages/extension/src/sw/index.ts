@@ -232,6 +232,10 @@ if (import.meta.env.VITE_E2E === "1") {
   (globalThis as Record<string, unknown>).__entzSetSettings = (patch: unknown) =>
     setSettings(patch as Parameters<typeof setSettings>[0]);
   (globalThis as Record<string, unknown>).__entzClearKey = clearKey;
+  (globalThis as Record<string, unknown>).__entzGetLocal = async (key: string): Promise<unknown> =>
+    (await chrome.storage.local.get(key))[key];
+  (globalThis as Record<string, unknown>).__entzClearLocal = (key: string) =>
+    chrome.storage.local.remove(key);
   (globalThis as Record<string, unknown>).__entzKeyRecordMeta = async () => {
     const record = await readKey();
     if (record === null || record === undefined) return null;

@@ -71,8 +71,8 @@ describe("scan", () => {
     expect(scan(root)).toEqual([]);
   });
 
-  it("skips nodes the extension itself inserted", () => {
-    const root = mount(`<p><span data-entz-plain data-entz-ct="x">${TOKEN}</span></p>`);
+  it("skips the extension's own shadow host", () => {
+    const root = mount(`<p><div data-entz-host>${TOKEN}</div></p>`);
     expect(scan(root)).toEqual([]);
   });
 });
@@ -103,10 +103,10 @@ describe("isEditable", () => {
 });
 
 describe("isOwnNode", () => {
-  it("recognises inserted plaintext spans and overlay hosts", () => {
-    const root = mount("<span data-entz-plain>a</span><div data-entz-host></div><i>b</i>");
+  it("recognises the extension's shadow hosts and nothing else", () => {
+    const root = mount("<div data-entz-host><b>a</b></div><i>b</i>");
     expect(isOwnNode(root.children[0] as Element)).toBe(true);
-    expect(isOwnNode(root.children[1] as Element)).toBe(true);
-    expect(isOwnNode(root.children[2] as Element)).toBe(false);
+    expect(isOwnNode(root.children[0]?.firstChild as Element)).toBe(true);
+    expect(isOwnNode(root.children[1] as Element)).toBe(false);
   });
 });
