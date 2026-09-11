@@ -12,18 +12,6 @@ export interface GuardOptions {
   onBlocked(key: string): void;
 }
 
-let writing = false;
-
-/** Runs `apply`, whose own writes into the page's editors the guard must let through. */
-export function allowingWrites<T>(apply: () => T): T {
-  writing = true;
-  try {
-    return apply();
-  } finally {
-    writing = false;
-  }
-}
-
 function toRange(source: AbstractRange): Range | null {
   if (source instanceof Range) return source;
   try {
@@ -72,7 +60,7 @@ function touched(edits: Range[], tokens: GuardedToken[]): GuardedToken | null {
  */
 export function installGuard(options: GuardOptions): void {
   const intercept = (event: Event, edits: Range[]): void => {
-    if (writing || edits.length === 0) return;
+    if (edits.length === 0) return;
     const hit = touched(edits, options.tokens());
     if (hit === null) return;
     event.preventDefault();

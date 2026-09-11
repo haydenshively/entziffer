@@ -22,15 +22,16 @@ import { clearKey, type KeyRecord, readKey, readSession, writeKey } from "./keys
 import {
   installSessionListeners,
   lockNow,
-  rememberUnlockTab,
+  rememberUnlockWindow,
   scheduleAutoLock,
   sessionKey,
   unlockSession,
-  unlockTabId,
+  unlockWindowId,
 } from "./session.js";
 import { getSettings, setSettings } from "./settings.js";
 
 const UNLOCK_PAGE = "unlock/index.html";
+const UNLOCK_WINDOW = { width: 440, height: 400 };
 
 const DYNAMIC_SCRIPT_ID = "entz-enabled-origins";
 const ALL_URLS = "<all_urls>";
@@ -55,19 +56,43 @@ async function statusOf(record?: KeyRecord): Promise<KeyStatus> {
   };
 }
 
-async function openUnlockTab(): Promise<void> {
+/**
+ * Runs the passkey ceremony in a small popup window centred on the caller's window rather than in
+ * a tab: the page has to be extension-origin for WebAuthn, and a popup that closes itself hands
+ * focus straight back to the tab the user was on. One popup at a time; a second request refocuses it.
+ */
+async function openUnlockWindow(sender: chrome.runtime.MessageSender): Promise<void> {
   const url = chrome.runtime.getURL(UNLOCK_PAGE);
-  const existing = await unlockTabId();
+  const existing = await unlockWindowId();
   if (existing !== undefined) {
-    const tab = await chrome.tabs.get(existing).catch(() => undefined);
-    if (tab?.url === url && tab.id !== undefined) {
-      await chrome.tabs.update(tab.id, { active: true });
-      await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
+    const open = await chrome.windows.get(existing, { populate: true }).catch(() => undefined);
+    if (open?.tabs?.some((tab) => tab.url === url)) {
+      await chrome.windows.update(existing, { focused: true, drawAttention: true });
       return;
     }
   }
-  const tab = await chrome.tabs.create({ url });
-  if (tab.id !== undefined) await rememberUnlockTab(tab.id);
+  const parent =
+    sender.tab === undefined
+      ? await chrome.windows.getLastFocused().catch(() => undefined)
+      : await chrome.windows.get(sender.tab.windowId).catch(() => undefined);
+  const centred =
+    parent?.left !== undefined &&
+    parent.width !== undefined &&
+    parent.top !== undefined &&
+    parent.height !== undefined
+      ? {
+          left: Math.round(parent.left + (parent.width - UNLOCK_WINDOW.width) / 2),
+          top: Math.round(parent.top + (parent.height - UNLOCK_WINDOW.height) / 2),
+        }
+      : {};
+  const created = await chrome.windows.create({
+    url,
+    type: "popup",
+    focused: true,
+    ...UNLOCK_WINDOW,
+    ...centred,
+  });
+  if (created?.id !== undefined) await rememberUnlockWindow(created.id);
 }
 
 function sameKey(a: ArrayBuffer, b: Uint8Array): boolean {
@@ -77,7 +102,10 @@ function sameKey(a: ArrayBuffer, b: Uint8Array): boolean {
 
 type AnyResponseData = ResponseData[RequestType];
 
-async function handle(request: Request): Promise<AnyResponseData> {
+async function handle(
+  request: Request,
+  sender: chrome.runtime.MessageSender = {},
+): Promise<AnyResponseData> {
   switch (request.type) {
     case "getStatus":
       return { status: await statusOf() };
@@ -91,7 +119,7 @@ async function handle(request: Request): Promise<AnyResponseData> {
       };
     }
     case "requestUnlock":
-      await openUnlockTab();
+      await openUnlockWindow(sender);
       return {};
     case "setupKey": {
       const { privateKey, publicRaw, fpr } = await deriveKeyFromPrf(b64urlDecode(request.prf));
@@ -166,7 +194,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: false, code: "FORBIDDEN", message: "extension pages only" });
       return false;
     }
-    handle(request)
+    handle(request, sender)
       .then((data) => sendResponse({ ok: true, data }))
       .catch((e: unknown) =>
         sendResponse({

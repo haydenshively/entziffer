@@ -1,17 +1,27 @@
 const SVG_NS = "http://www.w3.org/2000/svg";
-const BLUR_PX = 2;
-const SATURATE = 1.6;
-const MAX_SHIFT_PX = 28;
+/** Skia downsamples any blur past sigma 4 on a viewport-aligned grid, which shows as pixel
+ * stepping while the card moves; stacking passes under the threshold keeps it full-resolution.
+ * https://source.chromium.org/chromium/chromium/src/+/main:third_party/skia/src/gpu/ganesh/GrBlurUtils.cpp */
+const BODY_BLUR_PX = 4;
+const BODY_BLUR_PASSES = 2;
+const RIM_BLUR_PX = 0.8;
+const SATURATE = 1.8;
+const MAX_SHIFT_PX = 22;
 /** Width of the refracting rim as a fraction of the shorter side; the centre stays undistorted. */
-const RIM_FRACTION = 0.32;
+const RIM_FRACTION = 0.3;
 const RIM_MAX_PX = 16;
+/** Red bends least and blue most, so the rim shows a faint colour fringe like real glass. */
+const CHANNEL_DISPERSION = { R: 0.9, G: 1, B: 1.12 } as const;
+
+type Channel = keyof typeof CHANNEL_DISPERSION;
 
 let nextId = 0;
 
 /**
- * Builds the R/G displacement map for a rounded rectangle of `width`×`height`: neutral (128) in
- * the interior, ramping toward the outward normal inside the rim so the backdrop is pulled in at
- * the edges like a convex lens. Encoding per the SVG filter spec:
+ * Builds the displacement map for a rounded rectangle of `width`×`height`: R/G neutral (128) in
+ * the interior, ramping toward the centre inside the rim so the backdrop is stretched across
+ * the edges like the bevel of a thick glass slab; B carries the rim weight, which masks the sharp
+ * refracted layer over the frosted body. R/G encoding per the SVG filter spec:
  * https://www.w3.org/TR/filter-effects-1/#feDisplacementMapElement
  */
 function displacementMap(width: number, height: number, radius: number): string | null {
@@ -48,13 +58,14 @@ function displacementMap(width: number, height: number, radius: number): string 
         inside = r - qy;
         ny = 1;
       }
-      const t = inside < rim ? (1 - Math.max(inside, 0) / rim) ** 2 : 0;
-      const sx = Math.sign(px) * nx * t;
-      const sy = Math.sign(py) * ny * t;
+      const depth = inside < rim ? 1 - Math.max(inside, 0) / rim : 0;
+      const t = depth ** 3;
+      const sx = -Math.sign(px) * nx * t;
+      const sy = -Math.sign(py) * ny * t;
       const i = (y * width + x) * 4;
       data[i] = 128 + Math.round(sx * 127);
       data[i + 1] = 128 + Math.round(sy * 127);
-      data[i + 2] = 128;
+      data[i + 2] = Math.round(depth ** 1.5 * 255);
       data[i + 3] = 255;
     }
   }
@@ -71,12 +82,39 @@ function el<K extends keyof SVGElementTagNameMap>(
   return node;
 }
 
+function channelMatrix(channel: Channel): string {
+  const rows = (["R", "G", "B"] as const).map((c, i) => {
+    const row = [0, 0, 0, 0, 0];
+    if (c === channel) row[i] = 1;
+    return row.join(" ");
+  });
+  return `${rows.join(" ")} 0 0 0 1 0`;
+}
+
+function refract(channel: Channel, input: string): SVGElement[] {
+  const displaced = `shift${channel}`;
+  return [
+    el("feDisplacementMap", {
+      in: input,
+      in2: "map",
+      scale: String(MAX_SHIFT_PX * CHANNEL_DISPERSION[channel]),
+      xChannelSelector: "R",
+      yChannelSelector: "G",
+      result: displaced,
+    }),
+    el("feColorMatrix", {
+      in: displaced,
+      type: "matrix",
+      values: channelMatrix(channel),
+      result: channel,
+    }),
+  ];
+}
+
 /**
- * Gives `target` a refracting backdrop: an SVG filter (blur → saturate → displacement) inlined in
- * the same shadow root, because `url(#id)` never resolves across a shadow boundary. Chromium is the
- * only engine that honours SVG filters in `backdrop-filter`
- * (https://github.com/w3c/svgwg/issues/1142); elsewhere the stylesheet's plain blur stays.
- * The map is rebuilt whenever the element's box changes. Returns a disposer.
+ * Gives `target` a refracting backdrop: a frosted body under a sharp, per-channel-displaced rim,
+ * as an SVG filter inlined in the same shadow root because `url(#id)` never resolves across a
+ * shadow boundary. The map is rebuilt whenever the element's box changes. Returns a disposer.
  */
 export function attachLens(root: ShadowRoot, target: HTMLElement): () => void {
   if (typeof ResizeObserver !== "function") return () => {};
@@ -92,26 +130,61 @@ export function attachLens(root: ShadowRoot, target: HTMLElement): () => void {
     height: "100%",
     "color-interpolation-filters": "sRGB",
   });
-  const blur = el("feGaussianBlur", {
+  const body: SVGElement[] = [];
+  for (let pass = 0; pass < BODY_BLUR_PASSES; pass++) {
+    body.push(
+      el("feGaussianBlur", {
+        in: pass === 0 ? "SourceGraphic" : `body${pass - 1}`,
+        stdDeviation: String(BODY_BLUR_PX),
+        result: pass === BODY_BLUR_PASSES - 1 ? "body" : `body${pass}`,
+      }),
+    );
+  }
+  const sharp = el("feGaussianBlur", {
     in: "SourceGraphic",
-    stdDeviation: String(BLUR_PX),
-    result: "blurred",
-  });
-  const saturate = el("feColorMatrix", {
-    in: "blurred",
-    type: "saturate",
-    values: String(SATURATE),
-    result: "saturated",
+    stdDeviation: String(RIM_BLUR_PX),
+    result: "sharp",
   });
   const map = el("feImage", { preserveAspectRatio: "none", result: "map" });
-  const displace = el("feDisplacementMap", {
-    in: "saturated",
-    in2: "map",
-    scale: String(MAX_SHIFT_PX),
-    xChannelSelector: "R",
-    yChannelSelector: "G",
+  const rimWeight = el("feColorMatrix", {
+    in: "map",
+    type: "matrix",
+    values: "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0",
+    result: "rimWeight",
   });
-  filter.append(blur, saturate, map, displace);
+  const redGreen = el("feBlend", { in: "R", in2: "G", mode: "screen", result: "RG" });
+  const rim = el("feBlend", { in: "RG", in2: "B", mode: "screen", result: "rim" });
+  const rimMasked = el("feComposite", {
+    in: "rim",
+    in2: "rimWeight",
+    operator: "in",
+    result: "rimMasked",
+  });
+  const layered = el("feComposite", {
+    in: "rimMasked",
+    in2: "body",
+    operator: "over",
+    result: "layered",
+  });
+  const saturate = el("feColorMatrix", {
+    in: "layered",
+    type: "saturate",
+    values: String(SATURATE),
+  });
+  filter.append(
+    ...body,
+    sharp,
+    map,
+    rimWeight,
+    ...refract("R", "sharp"),
+    ...refract("G", "sharp"),
+    ...refract("B", "sharp"),
+    redGreen,
+    rim,
+    rimMasked,
+    layered,
+    saturate,
+  );
   svg.appendChild(filter);
   root.appendChild(svg);
 

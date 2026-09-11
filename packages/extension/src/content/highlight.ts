@@ -1,22 +1,24 @@
 export const TAG_LAYER = "entz-tag";
-export const ACTIVE_LAYER = "entz-tag-active";
-export const DIM_LAYER = "entz-tag-dim";
-export const FOREIGN_LAYER = "entz-tag-foreign";
+export const FOREIGN_LAYER = "entz-foreign";
+export const DIM_LAYER = "entz-dim";
 
 const ACCENT_PROPERTY = "--entz-highlight-accent";
-const ON_ACCENT_PROPERTY = "--entz-highlight-on-accent";
-/** Inside `::highlight()`, `currentColor` is the highlight's own colour, so grey is explicit. */
+/**
+ * Inside `::highlight()`, `currentColor` is the highlight's own colour (which Chromium resolves to
+ * black), never the text's, so every colour a layer paints has to be spelled out.
+ */
 const FOREIGN_PROPERTY = "--entz-highlight-foreign";
+/** How much of the text's own colour the ciphertext keeps while it is not under the cursor. */
+const DIM_PERCENT = 65;
+/** Distinct text colours that get their own dim layer before new ones fall back to the first. */
+const MAX_DIM_LAYERS = 32;
 
-const ROOT_RULES = `:root {
-  ${ACCENT_PROPERTY}: #3b5bdb; ${ON_ACCENT_PROPERTY}: #fff; ${FOREIGN_PROPERTY}: rgba(20, 24, 40, 0.55);
-}
+const ROOT_RULES = `:root { ${ACCENT_PROPERTY}: #3b5bdb; ${FOREIGN_PROPERTY}: rgba(20, 24, 40, 0.55); }
 @media (prefers-color-scheme: dark) { :root {
-  ${ACCENT_PROPERTY}: #8ea2ff; ${ON_ACCENT_PROPERTY}: #12141a; ${FOREIGN_PROPERTY}: rgba(255, 255, 255, 0.6);
+  ${ACCENT_PROPERTY}: #8ea2ff; ${FOREIGN_PROPERTY}: rgba(255, 255, 255, 0.6);
 } }`;
 
 const ACCENT = `var(${ACCENT_PROPERTY})`;
-const tint = (percent: number): string => `color-mix(in srgb, ${ACCENT} ${percent}%, transparent)`;
 
 export interface HighlightLayer {
   add(range: Range): void;
@@ -75,31 +77,43 @@ export function highlightLayer(name: string, css: string): HighlightLayer {
 }
 
 /**
- * The `ENTZ1:` marker at the head of every token, styled as a small tag; the ciphertext after it
- * is left exactly as the page renders it.
+ * The `ENTZ1:` marker at the head of a token, styled as a small tag in one fixed accent; the
+ * ciphertext after it is left exactly as the page renders it.
  */
 export const tagLayer = (): HighlightLayer =>
-  highlightLayer(TAG_LAYER, `background-color: ${tint(16)}; color: ${ACCENT};`);
-
-/** The one token the pane and page agree on. */
-export const activeLayer = (): HighlightLayer =>
   highlightLayer(
-    ACTIVE_LAYER,
-    `background-color: ${ACCENT}; color: var(${ON_ACCENT_PROPERTY});
-     -webkit-text-fill-color: var(${ON_ACCENT_PROPERTY});`,
+    TAG_LAYER,
+    `background-color: color-mix(in srgb, ${ACCENT} 16%, transparent); color: ${ACCENT};
+     -webkit-text-fill-color: ${ACCENT};`,
   );
 
-/** Every other token while {@link activeLayer} holds one. */
-export const dimLayer = (): HighlightLayer =>
-  highlightLayer(
-    DIM_LAYER,
-    `background-color: ${tint(8)}; color: ${tint(45)}; -webkit-text-fill-color: ${tint(45)};`,
-  );
-
-/** Tokens this key cannot open: encrypted to someone else, or malformed. */
+/** The marker of a token this key cannot open: encrypted to someone else, or malformed. */
 export const foreignLayer = (): HighlightLayer =>
   highlightLayer(
     FOREIGN_LAYER,
     `background-color: color-mix(in srgb, var(${FOREIGN_PROPERTY}) 25%, transparent);
      color: var(${FOREIGN_PROPERTY}); -webkit-text-fill-color: var(${FOREIGN_PROPERTY});`,
   );
+
+const dimLayers = new Map<string, HighlightLayer>();
+
+/**
+ * The ciphertext body of a token not under the cursor, faded to {@link DIM_PERCENT} of `color`,
+ * the computed colour of the text it sits in. One layer per distinct colour, since a highlight
+ * cannot see the colour of the text it covers; the hovered token simply leaves its layer.
+ */
+export function dimLayer(color: string): HighlightLayer {
+  const existing = dimLayers.get(color);
+  if (existing !== undefined) return existing;
+  if (dimLayers.size >= MAX_DIM_LAYERS) return dimLayers.values().next().value as HighlightLayer;
+  const faded = `color-mix(in srgb, ${color} ${DIM_PERCENT}%, transparent)`;
+  const layer = highlightLayer(
+    `${DIM_LAYER}-${dimLayers.size}`,
+    `color: ${faded}; -webkit-text-fill-color: ${faded};`,
+  );
+  dimLayers.set(color, layer);
+  return layer;
+}
+
+/** Every layer created so far, for clearing or forgetting a range wherever it may be. */
+export const allLayers = (): HighlightLayer[] => [...layers.values()];

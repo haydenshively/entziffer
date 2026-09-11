@@ -97,36 +97,40 @@ async function openFixture(): Promise<Page> {
 }
 
 /** Playwright's CSS engine pierces the pane's open shadow root, so these need no host hop. */
-const entries = (page: Page): Locator => page.locator("[data-entz-entry]");
+const card = (page: Page): Locator => page.locator("[data-entz-card]");
+const cardText = (page: Page): Locator => card(page).locator("[data-entz-text]");
 
-const entryText = (page: Page): Promise<string[]> =>
-  entries(page)
-    .locator("textarea")
-    .evaluateAll((els) => els.map((el) => (el as HTMLTextAreaElement).value));
+/** How many tokens the content script has tagged, ours and other people's alike. */
+const tokenCount = async (page: Page): Promise<number> =>
+  (await highlighted(page, "entz-tag")).length + (await highlighted(page, "entz-foreign")).length;
 
-/** The tokens whose `ENTZ1:` marker a highlight layer currently paints, in layer order. */
-const highlighted = (page: Page, layer: string): Promise<string[]> =>
-  page.evaluate(
-    (name) =>
-      [...(CSS.highlights.get(name) ?? [])].map((r) => {
+/** Waits for the first scan of the fixture to have tagged every token. */
+const scanned = (page: Page, count = 6): Promise<void> =>
+  expect.poll(() => tokenCount(page)).toBe(count);
+
+/**
+ * The tokens whose `ENTZ1:` marker is painted by the highlight layer named `family`, sorted.
+ */
+const highlighted = (page: Page, family: string): Promise<string[]> =>
+  page.evaluate((name) => {
+    const out: string[] = [];
+    for (const [layer, highlight] of CSS.highlights) {
+      if (layer !== name && !new RegExp(`^${name}-\\d+$`).test(layer)) continue;
+      for (const r of highlight) {
         const range = r as Range;
         const text = (range.startContainer as Text).data.slice(range.startOffset);
-        return /^ENTZ1:[A-Za-z0-9_-]+/.exec(text)?.[0] ?? range.toString();
-      }),
-    layer,
-  );
+        const match = /^(ENTZ1:)?([A-Za-z0-9_-]+)/.exec(text);
+        // A body range starts just after the marker; name it by its whole token either way.
+        out.push(match === null ? range.toString() : `ENTZ1:${match[2]}`);
+      }
+    }
+    return out.sort();
+  }, family);
+
+const sorted = (...tokens: string[]): string[] => [...tokens].sort();
 
 const textOf = (page: Page, selector: string): Promise<string | null> =>
   page.locator(selector).evaluate((el) => el.textContent);
-
-/** Every token in the fixture, in document order, as the pane lists them. */
-const ALL_TEXT = [
-  plaintext("ascii-title"),
-  plaintext("with-newline"),
-  plaintext("ascii-title"),
-  plaintext("title-60"),
-  plaintext("ascii-title"),
-];
 
 const box = async (
   locator: Locator,
@@ -136,13 +140,53 @@ const box = async (
   return rect;
 };
 
-const paneRect = (): Promise<Record<string, number> | undefined> =>
-  worker.evaluate(
-    () =>
-      (globalThis as unknown as E2EHooks).__entzGetLocal("paneRect") as Promise<
-        Record<string, number> | undefined
-      >,
-  );
+/** The centre of the `ENTZ1:` tag of the first token inside `selector`. */
+async function tagPoint(page: Page, selector: string): Promise<{ x: number; y: number }> {
+  await expect.poll(() => tokenCount(page)).toBeGreaterThan(0);
+  await page.locator(selector).scrollIntoViewIfNeeded();
+  const point = await page.evaluate((sel) => {
+    for (const [name, highlight] of CSS.highlights) {
+      if (name !== "entz-tag" && name !== "entz-foreign") continue;
+      for (const r of highlight) {
+        const range = r as Range;
+        if (range.startContainer.parentElement?.closest(sel) == null) continue;
+        const rect = range.getClientRects()[0];
+        if (rect === undefined) return null;
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      }
+    }
+    return null;
+  }, selector);
+  if (point === null) throw new Error(`no tag inside ${selector}`);
+  return point;
+}
+
+/** The token whose tag is painted inside `selector`, if any. */
+const taggedToken = (page: Page, selector: string): Promise<string | null> =>
+  page.evaluate((sel) => {
+    for (const [name, highlight] of CSS.highlights) {
+      if (name !== "entz-tag") continue;
+      for (const r of highlight) {
+        const range = r as Range;
+        if (range.startContainer.parentElement?.closest(sel) == null) continue;
+        const text = (range.startContainer as Text).data.slice(range.startOffset);
+        return /^ENTZ1:[A-Za-z0-9_-]+/.exec(text)?.[0] ?? null;
+      }
+    }
+    return null;
+  }, selector);
+
+/** Moves the cursor onto the token inside `selector` and waits for its card. */
+async function hoverToken(page: Page, selector: string): Promise<void> {
+  const point = await tagPoint(page, selector);
+  await page.mouse.move(point.x, point.y);
+  await expect(card(page)).toBeVisible();
+}
+
+/** Parks the cursor on the fixture heading, away from every token and from the pane. */
+const hoverNothing = (page: Page): Promise<void> => page.locator("h1").hover();
+
+const DRAFT = (body: string): string => `Draft: ${body} (still editing)`;
 
 test("loads under the extension id the manifest key pins", async () => {
   expect(await worker.evaluate(() => chrome.runtime.id)).toBe(EXTENSION_ID);
@@ -154,15 +198,16 @@ test("derives the vector's recipient key from the seeded PRF output", async () =
 
 test("leaves every text node byte-identical to the ciphertext, editable or not", async () => {
   const page = await openFixture();
-  await expect(page.locator("[data-entz-pane]")).toBeVisible();
+  await scanned(page);
 
   expect(await textOf(page, "#para")).toBe(
     `Heads up: ${token("ascii-title")} — please review today.`,
   );
   expect(await textOf(page, "#row")).toBe(token("with-newline"));
-  const expected = `Draft: ${token("ascii-title")} (still editing)`;
-  expect(await textOf(page, "#editable-para")).toBe(expected);
-  expect(await page.locator("#editable").evaluate((el) => el.textContent?.trim())).toBe(expected);
+  expect(await textOf(page, "#editable-para")).toBe(DRAFT(token("ascii-title")));
+  expect(await page.locator("#editable").evaluate((el) => el.textContent?.trim())).toBe(
+    DRAFT(token("ascii-title")),
+  );
   expect(await textOf(page, "#foreign")).toBe(`Someone else's: ${token("foreign")}`);
   // The pane's shadow host is the only node entziffer adds to the page.
   await expect(page.locator("[data-entz-host]")).toHaveCount(1);
@@ -177,38 +222,29 @@ test("leaves every text node byte-identical to the ciphertext, editable or not",
   await page.close();
 });
 
-test("lists every token in the pane, in document order, editable ones as editable", async () => {
+test("shows no plaintext at all until a token is hovered", async () => {
   const page = await openFixture();
-  await expect(entries(page)).toHaveCount(6);
-  expect(await entryText(page)).toEqual(ALL_TEXT);
-  await expect(page.locator("[data-entz-count]")).toHaveText("6 encrypted");
-
-  const readOnly = await entries(page)
-    .locator("textarea")
-    .evaluateAll((els) => els.map((el) => (el as HTMLTextAreaElement).readOnly));
-  expect(readOnly).toEqual([true, true, false, false, false]);
-  await expect(entries(page).locator("[data-entz-insert]")).toHaveCount(3);
-  await expect(entries(page).nth(0).locator("[data-entz-insert]")).toHaveCount(0);
-  await expect(entries(page).nth(0).locator("[data-entz-copy]")).toHaveCount(1);
-  await expect(entries(page).nth(5)).toContainText(
-    `Encrypted for someone else · ${foreign.fingerprint}`,
-  );
+  await scanned(page);
+  await expect(card(page)).toBeHidden();
+  await expect(cardText(page)).toHaveCount(0);
+  await expect(page.locator("[data-entz-host] textarea, [data-entz-host] input")).toHaveCount(0);
   await page.close();
 });
 
 test("tags every token's marker with a highlight and leaves the ciphertext as rendered", async () => {
   const page = await openFixture();
-  await expect(entries(page)).toHaveCount(6);
+  await scanned(page);
 
-  // The 157-character token in the 220px editor wraps; the range spans all of it.
-  expect(await highlighted(page, "entz-tag")).toEqual([
-    token("ascii-title"),
-    token("with-newline"),
-    token("ascii-title"),
-    token("title-60"),
-    token("ascii-title"),
-  ]);
-  expect(await highlighted(page, "entz-tag-foreign")).toEqual([token("foreign")]);
+  expect(await highlighted(page, "entz-tag")).toEqual(
+    sorted(
+      token("ascii-title"),
+      token("with-newline"),
+      token("ascii-title"),
+      token("title-60"),
+      token("ascii-title"),
+    ),
+  );
+  expect(await highlighted(page, "entz-foreign")).toEqual([token("foreign")]);
   expect(await textOf(page, "#editable-multiline")).toBe(token("title-60"));
   expect(
     await page.evaluate(() => {
@@ -221,126 +257,139 @@ test("tags every token's marker with a highlight and leaves the ciphertext as re
     }),
   ).toMatch(/background-color: color-mix\(/);
   expect(
+    await page.evaluate(() => {
+      for (const sheet of document.adoptedStyleSheets) {
+        for (const rule of sheet.cssRules) {
+          if (rule.cssText.startsWith("::highlight(entz-dim-0)")) return rule.cssText;
+        }
+      }
+      return null;
+    }),
+  ).toMatch(/color: color-mix\(in srgb, rgb\(0, 0, 0\) 65%, transparent/);
+  expect(await highlighted(page, "entz-dim")).toHaveLength(6);
+  expect(
     await page.evaluate(() =>
-      [...(CSS.highlights.get("entz-tag") ?? [])].map((r) => (r as Range).toString()),
+      [...CSS.highlights]
+        .filter(([name]) => name === "entz-tag")
+        .flatMap(([, h]) => [...h].map((r) => (r as Range).toString())),
     ),
   ).toEqual(Array(5).fill("ENTZ1:"));
   await page.close();
 });
 
-test("hovering an entry focuses its token and dims the others", async () => {
+test("hovering a token shows its plaintext in the token's own typography, then hides it", async () => {
   const page = await openFixture();
-  await expect(entries(page)).toHaveCount(6);
+  await hoverToken(page, "#editable-para");
+  await expect(cardText(page)).toHaveText(plaintext("ascii-title"));
 
-  await entries(page).nth(3).hover();
-  await expect.poll(() => highlighted(page, "entz-tag-active")).toEqual([token("title-60")]);
-  expect(await highlighted(page, "entz-tag-dim")).toEqual([
-    token("ascii-title"),
-    token("with-newline"),
-    token("ascii-title"),
-    token("ascii-title"),
-    token("foreign"),
-  ]);
-  expect(await highlighted(page, "entz-tag")).toEqual([]);
+  const typeOf = (el: Element): Record<string, string> => {
+    const s = getComputedStyle(el);
+    return Object.fromEntries(
+      [
+        "font-family",
+        "font-size",
+        "font-weight",
+        "font-style",
+        "font-feature-settings",
+        "font-variant-numeric",
+        "line-height",
+        "letter-spacing",
+        "color",
+      ].map((p) => [p, s.getPropertyValue(p)]),
+    );
+  };
+  const expected = await page.locator("#editable-para").evaluate(typeOf);
+  const width = await page
+    .locator("#editable-para")
+    .evaluate((el) => el.getBoundingClientRect().width);
+  expect(await cardText(page).evaluate(typeOf)).toEqual(expected);
+  // The fixture's editor has a tuned type stack, which is what defeats the `font` shorthand.
+  expect(expected["font-weight"]).toBe("500");
+  expect(expected["font-size"]).toBe("20px");
+  expect(expected["font-feature-settings"]).toBe('"tnum"');
+  // The card wraps at the token's block width, capped so a full-width block stays a card.
+  expect(await card(page).evaluate((el) => el.style.maxWidth)).toBe(`${Math.min(720, width)}px`);
+  // The hovered token's body leaves the dim layer; every other body, foreign included, stays faded.
+  expect(await highlighted(page, "entz-dim")).toEqual(
+    sorted(
+      token("ascii-title"),
+      token("with-newline"),
+      token("ascii-title"),
+      token("title-60"),
+      token("foreign"),
+    ),
+  );
+  expect(await highlighted(page, "entz-tag")).toHaveLength(5);
 
-  await page.locator("h1").hover();
-  await expect.poll(() => highlighted(page, "entz-tag-active")).toEqual([]);
-  expect(await highlighted(page, "entz-tag-dim")).toEqual([]);
+  await hoverNothing(page);
+  await expect(card(page)).toBeHidden();
+  await expect.poll(() => highlighted(page, "entz-dim")).toHaveLength(6);
   expect(await highlighted(page, "entz-tag")).toHaveLength(5);
   await page.close();
 });
 
-test("hovering a token in the page marks and focuses its pane entry", async () => {
+test("the card is plaintext only and goes away the moment the cursor leaves the token", async () => {
   const page = await openFixture();
-  await expect(entries(page)).toHaveCount(6);
-  await page.locator("#pm-editor").scrollIntoViewIfNeeded();
-
-  const point = await page.evaluate(() => {
-    for (const entry of CSS.highlights.get("entz-tag") ?? []) {
-      const range = entry as Range;
-      if (range.startContainer.parentElement?.closest("#pm-editor") == null) continue;
-      const rect = range.getClientRects()[0];
-      if (rect === undefined) return null;
-      return { x: rect.left + 4, y: rect.top + rect.height / 2 };
-    }
-    return null;
-  });
-  if (point === null) throw new Error("no token rect inside the ProseMirror editor");
-
-  await page.mouse.move(point.x, point.y);
-  await expect(entries(page).nth(4)).toHaveAttribute("data-entz-active", "");
-  await expect(entries(page).nth(2)).not.toHaveAttribute("data-entz-active", "");
-  await expect(entries(page).nth(3)).not.toHaveAttribute("data-entz-active", "");
-  expect(await highlighted(page, "entz-tag-active")).toEqual([token("ascii-title")]);
-
-  await page.mouse.move(4, 4);
-  await expect(entries(page).nth(4)).not.toHaveAttribute("data-entz-active", "");
-  await expect.poll(() => highlighted(page, "entz-tag-active")).toEqual([]);
+  await hoverToken(page, "#editable-para");
+  await expect(card(page).locator("button, input, textarea, a")).toHaveCount(0);
+  await hoverNothing(page);
+  await expect(card(page)).toBeHidden();
+  await hoverToken(page, "#para");
+  await expect(cardText(page)).toHaveText(plaintext("ascii-title"));
   await page.close();
 });
 
-test.describe("insert plaintext", () => {
-  const DRAFT = (body: string): string => `Draft: ${body} (still editing)`;
-
-  const insertOf = (page: Page, index: number): Locator =>
-    entries(page).nth(index).locator("[data-entz-insert]");
-
-  test("rewrites a plain contenteditable and leaves nothing to re-render", async () => {
-    const page = await openFixture();
-    await expect(entries(page)).toHaveCount(6);
-
-    await expect(insertOf(page, 2)).toHaveAttribute(
-      "title",
-      /Saving the field afterwards stores it/,
-    );
-    await insertOf(page, 2).click();
-
-    await expect.poll(() => textOf(page, "#editable-para")).toBe(DRAFT(plaintext("ascii-title")));
-    await expect(entries(page)).toHaveCount(5);
-
-    await page.click("#insert");
-    await expect(entries(page)).toHaveCount(6);
-    expect(await textOf(page, "#editable-para")).toBe(DRAFT(plaintext("ascii-title")));
-    expect(await textOf(page, "#dynamic-para")).toBe(`Late arrival: ${token("ascii-title")} ok`);
-    await page.close();
+test("the card holds steady in the gap between two lines of a wrapped token", async () => {
+  const page = await openFixture();
+  await scanned(page);
+  await page.locator("#editable-multiline").scrollIntoViewIfNeeded();
+  const gap = await page.evaluate(() => {
+    for (const [name, highlight] of CSS.highlights) {
+      if (name !== "entz-tag") continue;
+      for (const r of highlight) {
+        const range = r as Range;
+        if (range.startContainer.parentElement?.closest("#editable-multiline") == null) continue;
+        const whole = range.cloneRange();
+        whole.setEnd(range.startContainer, (range.startContainer as Text).length);
+        const rects = [...whole.getClientRects()].sort((a, b) => a.top - b.top);
+        const [first, second] = rects;
+        if (first === undefined || second === undefined) return null;
+        return {
+          x: Math.round(Math.max(first.left, second.left) + 20),
+          y: Math.round((first.bottom + second.top) / 2),
+          gap: second.top - first.bottom,
+        };
+      }
+    }
+    return null;
   });
+  if (gap === null) throw new Error("the narrow editor's token did not wrap");
+  // The fixture's line-height leaves several pixels of dead space between glyph boxes.
+  expect(gap.gap).toBeGreaterThan(4);
 
-  test("inserts the value the user edited in the pane, not the original plaintext", async () => {
-    const page = await openFixture();
-    await expect(entries(page)).toHaveCount(6);
+  await page.mouse.move(gap.x, gap.y - 12);
+  await expect(card(page)).toBeVisible();
+  await page.mouse.move(gap.x, gap.y);
+  await page.waitForTimeout(150);
+  await expect(card(page)).toBeVisible();
+  await expect(cardText(page)).toHaveText(plaintext("title-60"));
+  await page.close();
+});
 
-    const textarea = entries(page).nth(2).locator("textarea");
-    await textarea.fill("edited in the pane");
-    await insertOf(page, 2).click();
-
-    await expect.poll(() => textOf(page, "#editable-para")).toBe(DRAFT("edited in the pane"));
-    await expect(entries(page)).toHaveCount(5);
-    await page.close();
-  });
-
-  test("rewrites a real ProseMirror editor through its own state", async () => {
-    const page = await openFixture();
-    await expect(entries(page)).toHaveCount(6);
-    expect(await textOf(page, "#pm-editor")).toBe(DRAFT(token("ascii-title")));
-
-    await insertOf(page, 4).click();
-
-    await expect.poll(() => textOf(page, "#pm-editor")).toBe(DRAFT(plaintext("ascii-title")));
-    expect(
-      await page.evaluate(
-        () =>
-          (window as unknown as { __pmView: { state: { doc: { textContent: string } } } }).__pmView
-            .state.doc.textContent,
-      ),
-    ).toBe(DRAFT(plaintext("ascii-title")));
-    await expect(entries(page)).toHaveCount(5);
-    await page.close();
-  });
+test("clicking a token pins its card until Escape", async () => {
+  const page = await openFixture();
+  const point = await tagPoint(page, "#row");
+  await page.mouse.click(point.x, point.y);
+  await expect(cardText(page)).toHaveText(plaintext("with-newline"));
+  await hoverNothing(page);
+  await page.waitForTimeout(600);
+  await expect(card(page)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(card(page)).toBeHidden();
+  await page.close();
 });
 
 test.describe("editing in the page is refused", () => {
-  const DRAFT = (body: string): string => `Draft: ${body} (still editing)`;
-
   /** Puts the caret `offset` characters into the token inside `selector`'s first text node. */
   async function caretInToken(page: Page, selector: string, offset: number): Promise<void> {
     await page.locator(selector).click();
@@ -355,41 +404,29 @@ test.describe("editing in the page is refused", () => {
     );
   }
 
-  const paneValue = (page: Page): Promise<string | null> =>
-    page.evaluate(() => {
-      for (const host of document.querySelectorAll("[data-entz-host]")) {
-        const active = host.shadowRoot?.activeElement;
-        if (active instanceof HTMLTextAreaElement) return active.value;
-      }
-      return null;
-    });
-
-  test("typing into a token leaves it intact and moves focus to its pane entry", async () => {
+  test("typing into a token leaves it intact and pins its card instead", async () => {
     const page = await openFixture();
-    await expect(entries(page)).toHaveCount(6);
+    await scanned(page);
     await caretInToken(page, "#editable-para", 20);
     await page.keyboard.type("x");
     expect(await textOf(page, "#editable-para")).toBe(DRAFT(token("ascii-title")));
-    expect(await paneValue(page)).toBe(plaintext("ascii-title"));
+    await expect(cardText(page)).toHaveText(plaintext("ascii-title"));
     await page.close();
   });
 
   test("Backspace at a token's end and typing at its edges are refused too", async () => {
     const page = await openFixture();
-    await expect(entries(page)).toHaveCount(6);
+    await scanned(page);
     const before = DRAFT(token("ascii-title"));
 
-    // Each refused key hands focus to the pane, so the caret goes back before the next one.
     await caretInToken(page, "#editable-para", token("ascii-title").length);
     await page.keyboard.press("Backspace");
     expect(await textOf(page, "#editable-para")).toBe(before);
-    await caretInToken(page, "#editable-para", token("ascii-title").length);
     await page.keyboard.type("z");
     expect(await textOf(page, "#editable-para")).toBe(before);
     await caretInToken(page, "#editable-para", 0);
     await page.keyboard.press("Delete");
     expect(await textOf(page, "#editable-para")).toBe(before);
-    expect(await paneValue(page)).toBe(plaintext("ascii-title"));
 
     // Prose around the token is still the page's to edit.
     await page.evaluate(() => {
@@ -404,7 +441,7 @@ test.describe("editing in the page is refused", () => {
 
   test("a real ProseMirror editor refuses the edit through its own keymap as well", async () => {
     const page = await openFixture();
-    await expect(entries(page)).toHaveCount(6);
+    await scanned(page);
     const pmText = (): Promise<string> =>
       page.evaluate(
         () =>
@@ -420,286 +457,120 @@ test.describe("editing in the page is refused", () => {
       expect(await pmText()).toBe(before);
     }
     expect(await textOf(page, "#pm-editor")).toBe(before);
-    expect(await paneValue(page)).toBe(plaintext("ascii-title"));
+    await expect(cardText(page)).toHaveText(plaintext("ascii-title"));
     await page.close();
   });
 });
 
-test.describe("editing in the pane", () => {
-  const DRAFT = /^Draft: (ENTZ1:\S+) \(still editing\)$/;
-
-  interface PaneFocus {
-    value: string;
-    start: number | null;
-    end: number | null;
-  }
-
-  /** The pane lives in a shadow root, so `document.activeElement` only ever names its host. */
-  const paneFocus = (page: Page): Promise<PaneFocus | null> =>
-    page.evaluate(() => {
-      for (const host of document.querySelectorAll("[data-entz-host]")) {
-        const active = host.shadowRoot?.activeElement;
-        if (active instanceof HTMLTextAreaElement) {
-          return { value: active.value, start: active.selectionStart, end: active.selectionEnd };
-        }
-      }
-      return null;
-    });
-
-  const pmText = (page: Page): Promise<string> =>
+test("keeps the pane's own clicks away from the page's handlers", async () => {
+  const page = await openFixture();
+  await scanned(page);
+  await page.evaluate(() => {
+    const counters = { keys: 0, clicks: 0 };
+    (window as unknown as { __counters: typeof counters }).__counters = counters;
+    document.addEventListener("keydown", () => counters.keys++);
+    document.addEventListener("click", () => counters.clicks++);
+  });
+  const counters = (): Promise<{ keys: number; clicks: number }> =>
     page.evaluate(
-      () =>
-        (window as unknown as { __pmView: { state: { doc: { textContent: string } } } }).__pmView
-          .state.doc.textContent,
+      () => (window as unknown as { __counters: { keys: number; clicks: number } }).__counters,
     );
 
-  /** Types at the end of an entry's textarea and marks it, so a rebuilt row would be visible. */
-  async function typeInto(page: Page, index: number, suffix: string): Promise<void> {
-    const textarea = entries(page).nth(index).locator("textarea");
-    await textarea.click();
-    await textarea.evaluate((el) => {
-      const field = el as HTMLTextAreaElement;
-      field.dataset.probe = "kept";
-      field.setSelectionRange(field.value.length, field.value.length);
-    });
-    await page.keyboard.type(suffix);
-  }
+  await hoverNothing(page);
+  await page.locator("h1").click();
+  await page.keyboard.press("p");
+  expect(await counters()).toEqual({ keys: 1, clicks: 1 });
 
-  function rewritten(before: string, text: string | null): string {
-    const match = DRAFT.exec(text ?? "");
-    if (match === null) throw new Error(`not a draft holding one token: ${text}`);
-    const after = match[1] as string;
-    expect(after).not.toBe(before);
-    return after;
-  }
-
-  test("re-encrypts a plain contenteditable as the user types, without moving the caret", async () => {
-    const page = await openFixture();
-    await expect(entries(page)).toHaveCount(6);
-    const before = token("ascii-title");
-
-    await typeInto(page, 2, " plus more");
-    const edited = `${plaintext("ascii-title")} plus more`;
-
-    await expect
-      .poll(() => textOf(page, "#editable-para"), { timeout: 5_000 })
-      .not.toBe(`Draft: ${before} (still editing)`);
-    rewritten(before, await textOf(page, "#editable-para"));
-    expect(await textOf(page, "#editable-para")).not.toContain(plaintext("ascii-title"));
-
-    await expect(entries(page)).toHaveCount(6);
-    await expect(entries(page).nth(2).locator("textarea")).toHaveAttribute("data-probe", "kept");
-    expect(await paneFocus(page)).toEqual({
-      value: edited,
-      start: edited.length,
-      end: edited.length,
-    });
-    await page.close();
-  });
-
-  test("re-encrypts a real ProseMirror editor and keeps the row and its caret", async () => {
-    const page = await openFixture();
-    await expect(entries(page)).toHaveCount(6);
-    const before = token("ascii-title");
-    expect(await pmText(page)).toBe(`Draft: ${before} (still editing)`);
-
-    await typeInto(page, 4, "!");
-    const edited = `${plaintext("ascii-title")}!`;
-
-    await expect
-      .poll(() => pmText(page), { timeout: 5_000 })
-      .not.toBe(`Draft: ${before} (still editing)`);
-    const after = rewritten(before, await pmText(page));
-    expect(after).toBe(rewritten(before, await textOf(page, "#pm-editor")));
-    expect(await pmText(page)).not.toContain(plaintext("ascii-title"));
-
-    await expect(entries(page)).toHaveCount(6);
-    await expect(entries(page).nth(4).locator("textarea")).toHaveAttribute("data-probe", "kept");
-    expect(await paneFocus(page)).toEqual({
-      value: edited,
-      start: edited.length,
-      end: edited.length,
-    });
-    await expect.poll(() => entryText(page)).toEqual([...ALL_TEXT.slice(0, 4), edited]);
-    await page.close();
-  });
-
-  test("keeps the pane's own keys and clicks away from the page's handlers", async () => {
-    const page = await openFixture();
-    await expect(entries(page)).toHaveCount(6);
-    await page.evaluate(() => {
-      const counters = { keys: 0, clicks: 0 };
-      (window as unknown as { __counters: typeof counters }).__counters = counters;
-      document.addEventListener("keydown", () => counters.keys++);
-      document.addEventListener("click", () => counters.clicks++);
-    });
-    const counters = (): Promise<{ keys: number; clicks: number }> =>
-      page.evaluate(
-        () => (window as unknown as { __counters: { keys: number; clicks: number } }).__counters,
-      );
-
-    await page.locator("h1").click();
-    await page.keyboard.press("p");
-    expect(await counters()).toEqual({ keys: 1, clicks: 1 });
-
-    const textarea = entries(page).nth(2).locator("textarea");
-    await textarea.click();
-    await page.keyboard.press("p");
-    expect(await counters()).toEqual({ keys: 1, clicks: 1 });
-    expect(await paneFocus(page)).toMatchObject({ value: `${plaintext("ascii-title")}p` });
-    await page.close();
-  });
-});
-
-test.describe("the pane window", () => {
-  test("collapses to a pill that refracts its backdrop through an SVG filter", async () => {
-    const page = await openFixture();
-    await expect(entries(page)).toHaveCount(6);
-    const pill = page.locator("[data-entz-pill]");
-    await expect(pill).toBeVisible();
-    await expect(pill).toHaveAttribute("aria-expanded", "true");
-    await page.locator("[data-entz-collapse]").click();
-
-    await expect(pill).toBeVisible();
-    await expect(pill).toHaveText("6");
-    await expect(pill).toHaveAttribute("aria-expanded", "false");
-    await expect(page.locator("[data-entz-window]")).toBeHidden();
-    await expect
-      .poll(() =>
-        page.evaluate(() => {
-          for (const host of document.querySelectorAll("[data-entz-host]")) {
-            const el = host.shadowRoot?.querySelector("[data-entz-pill]");
-            if (!(el instanceof HTMLElement)) continue;
-            const map = host.shadowRoot?.querySelector("feImage")?.getAttribute("href") ?? "";
-            return `${getComputedStyle(el).backdropFilter} ${map.slice(0, 15)}`;
-          }
-          return null;
-        }),
-      )
-      .toMatch(/^url\("#entz-lens-\d+"\) data:image\/png/);
-
-    await pill.click();
-    await expect(page.locator("[data-entz-window]")).toBeVisible();
-    await page.close();
-  });
-
-  test("Esc collapses the pane while focus is inside it", async () => {
-    const page = await openFixture();
-    await entries(page).nth(2).locator("textarea").focus();
-    await page.keyboard.press("Escape");
-    await expect(page.locator("[data-entz-pill]")).toBeVisible();
-    await expect(page.locator("[data-entz-window]")).toBeHidden();
-    await page.locator("[data-entz-pill]").click();
-    await expect(page.locator("[data-entz-window]")).toBeVisible();
-    await page.close();
-  });
-
-  test("persists a drag and a resize to chrome.storage.local", async () => {
-    const page = await openFixture();
-    await expect(entries(page)).toHaveCount(6);
-
-    const header = page.locator("[data-entz-pane] .pane-head");
-    const from = await header.boundingBox();
-    if (from === null) throw new Error("no header box");
-    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(from.x + from.width / 2 - 120, from.y + from.height / 2 - 90, {
-      steps: 8,
-    });
-    await page.mouse.up();
-
-    await expect.poll(async () => (await paneRect())?.right).toBeGreaterThan(100);
-    expect((await paneRect())?.bottom).toBeGreaterThan(90);
-
-    const body = page.locator("[data-entz-body]");
-    const box = await body.boundingBox();
-    if (box === null) throw new Error("no body box");
-    await page.mouse.move(box.x + box.width - 3, box.y + box.height - 3);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width - 90, box.y + box.height - 40, { steps: 8 });
-    await page.mouse.up();
-
-    await expect.poll(async () => (await paneRect())?.width).toBeLessThan(340);
-    await page.close();
-  });
-
-  test.afterAll(async () => {
-    await worker.evaluate(() => (globalThis as unknown as E2EHooks).__entzClearLocal("paneRect"));
-  });
-});
-
-test("masks a token encrypted to someone else in grey and names its recipient in the pane", async () => {
-  const page = await openFixture();
-  await expect(entries(page)).toHaveCount(6);
-  expect(await highlighted(page, "entz-tag-foreign")).toEqual([token("foreign")]);
-  expect(await textOf(page, "#foreign")).toBe(`Someone else's: ${token("foreign")}`);
-  const row = entries(page).nth(5);
-  await expect(row).toContainText(`Encrypted for someone else · ${foreign.fingerprint}`);
-  await expect(row.locator("textarea")).toHaveCount(0);
+  // Pinning keeps the card up once the cursor leaves the token, so it can be clicked at all.
+  const point = await tagPoint(page, "#para");
+  await page.mouse.click(point.x, point.y);
+  await expect(card(page)).toBeVisible();
+  expect(await counters()).toEqual({ keys: 1, clicks: 2 });
+  await card(page).click();
+  expect(await counters()).toEqual({ keys: 1, clicks: 2 });
   await page.close();
 });
 
-test("a framework rewriting its own text node swaps the entry rather than adding one", async () => {
+test("the card follows the cursor across a token", async () => {
   const page = await openFixture();
-  await expect(entries(page)).toHaveCount(6);
+  const raw = await tagPoint(page, "#editable-para");
+  // Playwright moves the mouse to whole pixels.
+  const point = { x: Math.round(raw.x), y: Math.round(raw.y) };
+  await page.mouse.move(point.x, point.y);
+  await expect(card(page)).toBeVisible();
+  const first = await box(card(page));
+  expect(first.x).toBeCloseTo(point.x + 14, 0);
+  // Above the cursor, clear of where the browser would draw a native tooltip.
+  expect(first.y + first.height).toBeCloseTo(point.y - 14, 0);
+
+  await page.mouse.move(point.x + 60, point.y);
+  await expect.poll(async () => (await box(card(page))).x).toBeCloseTo(point.x + 74, 0);
+  const moved = await box(card(page));
+  expect(moved.y + moved.height).toBeCloseTo(point.y - 14, 0);
+
+  await page.close();
+});
+
+test("the card refracts its backdrop through an SVG filter and is the only thing entziffer shows", async () => {
+  const page = await openFixture();
+  await scanned(page);
+  await expect(card(page)).toBeHidden();
+  expect(
+    await page.evaluate(() => {
+      const host = document.querySelector("[data-entz-host]");
+      return [...(host?.shadowRoot?.children ?? [])].map((el) => el.tagName.toLowerCase());
+    }),
+  ).toEqual(["div", "svg"]);
+
+  await hoverToken(page, "#para");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const host = document.querySelector("[data-entz-host]");
+        const el = host?.shadowRoot?.querySelector("[data-entz-card]");
+        if (!(el instanceof HTMLElement)) return null;
+        const map = host?.shadowRoot?.querySelector("feImage")?.getAttribute("href") ?? "";
+        return `${getComputedStyle(el).backdropFilter} ${map.slice(0, 15)}`;
+      }),
+    )
+    .toMatch(/^url\("#entz-lens-\d+"\) data:image\/png/);
+  await page.close();
+});
+
+test("tags a token encrypted to someone else in grey and names its recipient on hover", async () => {
+  const page = await openFixture();
+  await scanned(page);
+  expect(await highlighted(page, "entz-foreign")).toEqual([token("foreign")]);
+  expect(await textOf(page, "#foreign")).toBe(`Someone else's: ${token("foreign")}`);
+  await hoverToken(page, "#foreign");
+  await expect(card(page)).toContainText(`Encrypted for someone else · ${foreign.fingerprint}`);
+  await expect(cardText(page)).toHaveCount(0);
+  await page.close();
+});
+
+test("a framework rewriting its own text node swaps the token rather than adding one", async () => {
+  const page = await openFixture();
+  await scanned(page);
   await page.evaluate((next) => {
     const para = document.getElementById("para") as HTMLElement;
     const owned = [...para.childNodes].find((n) => n.nodeType === Node.TEXT_NODE) as Text;
     owned.data = `Heads up: ${next} — please review today.`;
   }, token("title-60"));
-  await expect.poll(() => entryText(page)).toEqual([plaintext("title-60"), ...ALL_TEXT.slice(1)]);
-  await expect(entries(page)).toHaveCount(6);
-  await expect.poll(() => highlighted(page, "entz-tag")).toContain(token("title-60"));
+  await expect.poll(() => taggedToken(page, "#para")).toBe(token("title-60"));
+  await scanned(page);
+  await hoverToken(page, "#para");
+  await expect(cardText(page)).toHaveText(plaintext("title-60"));
   expect(await textOf(page, "#para")).toBe(`Heads up: ${token("title-60")} — please review today.`);
   await page.close();
 });
 
-test("lists a token inserted after load within a second", async () => {
+test("counts a token inserted after load within a second", async () => {
   const page = await openFixture();
-  await expect(entries(page)).toHaveCount(6);
+  await scanned(page);
   await page.click("#insert");
-  await expect(entries(page)).toHaveCount(7, { timeout: 1_000 });
-  await expect.poll(() => entryText(page)).toEqual([...ALL_TEXT, plaintext("ascii-title")]);
-  await page.close();
-});
-
-test("collapsing never moves the pill, and the window reopens above its right edge after a drag", async () => {
-  const page = await openFixture();
-  const win = page.locator("[data-entz-window]");
-  const pill = page.locator("[data-entz-pill]");
-  await expect(win).toBeVisible();
-  const head = await box(page.locator(".pane-head"));
-  await page.mouse.move(head.x + 40, head.y + head.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(head.x - 260, head.y - 160, { steps: 6 });
-  await page.mouse.up();
-  const before = await box(pill);
-  const windowBefore = await box(win);
-  expect(windowBefore.x + windowBefore.width).toBeCloseTo(before.x + before.width, 0);
-  expect(windowBefore.y + windowBefore.height).toBeLessThan(before.y);
-
-  await page.click("[data-entz-collapse]");
-  await expect(win).toBeHidden();
-  await expect(pill).toBeVisible();
-  expect(await box(pill)).toEqual(before);
-  expect(await pill.evaluate((el) => getComputedStyle(el).borderTopLeftRadius)).toBe(
-    await win.evaluate((el) => getComputedStyle(el).borderTopLeftRadius),
-  );
-
-  await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(before.x - 120, before.y + 60, { steps: 6 });
-  await page.mouse.up();
-  await expect(pill).toBeVisible();
-  const moved = await box(pill);
-  expect(moved.x).toBeLessThan(before.x - 100);
-
-  await pill.click();
-  await expect(win).toBeVisible();
-  expect(await box(pill)).toEqual(moved);
-  const windowAfter = await box(win);
-  expect(windowAfter.x + windowAfter.width).toBeCloseTo(moved.x + moved.width, 0);
-  expect(windowAfter.y + windowAfter.height).toBeLessThan(moved.y);
+  await expect.poll(() => tokenCount(page), { timeout: 1_000 }).toBe(7);
+  await hoverToken(page, "#dynamic-para");
+  await expect(cardText(page)).toHaveText(plaintext("ascii-title"));
   await page.close();
 });
 
@@ -723,68 +594,63 @@ test.describe("session lock", () => {
     await seedFromPrf();
   });
 
-  test("locks decryption, masks every token, and unlocks in place", async () => {
+  test("locks decryption, tags every token, and unlocks from the card", async () => {
     await worker.evaluate(() => (globalThis as unknown as E2EHooks).__entzLockNow());
     expect(await status()).toMatchObject({ hasKey: true, locked: true });
 
     const page = await openFixture();
-    await expect(page.locator("[data-entz-unlock]")).toHaveText("Unlock");
-    await expect(entries(page)).toHaveCount(0);
-    await expect(page.locator("[data-entz-count]")).toHaveText("6 encrypted");
-    await expect.poll(() => highlighted(page, "entz-tag")).toHaveLength(6);
-    expect(await highlighted(page, "entz-tag-foreign")).toEqual([]);
+    await scanned(page);
+    // Locked, every token is tagged in the accent; nothing is known to be somebody else's yet.
+    expect(await highlighted(page, "entz-foreign")).toEqual([]);
+    await hoverToken(page, "#para");
+    await expect(card(page)).toContainText("Locked · click to unlock");
+    await expect(cardText(page)).toHaveCount(0);
 
     const opened = context.waitForEvent("page");
-    await page.click("[data-entz-unlock]");
+    const point = await tagPoint(page, "#para");
+    await page.mouse.click(point.x, point.y);
     const unlockTab = await opened;
     expect(unlockTab.url()).toBe(new URL("unlock/index.html", worker.url()).href);
     await unlockTab.close();
-
-    // The pill reads "Locked" and, once the window is collapsed, unlocks on its own.
-    const pill = page.locator("[data-entz-pill]");
-    await expect(pill).toHaveText(/Locked/);
-    await page.click("[data-entz-collapse]");
-    await expect(page.locator("[data-entz-window]")).toBeHidden();
-    const reopened = context.waitForEvent("page");
-    await pill.click();
-    const secondTab = await reopened;
-    expect(secondTab.url()).toBe(new URL("unlock/index.html", worker.url()).href);
-    await secondTab.close();
-    await expect(page.locator("[data-entz-window]")).toBeHidden();
 
     await worker.evaluate(
       (prf) => (globalThis as unknown as E2EHooks).__entzUnlockWithPrf(prf),
       E2E_PRF_HEX,
     );
-    await expect(entries(page)).toHaveCount(6);
-    await expect(pill).toHaveText("6");
-    expect(await entryText(page)).toEqual(ALL_TEXT);
+    await expect.poll(() => highlighted(page, "entz-foreign")).toEqual([token("foreign")]);
+    await hoverNothing(page);
+    await hoverToken(page, "#para");
+    await expect(cardText(page)).toHaveText(plaintext("ascii-title"));
     expect(await status()).toMatchObject({ locked: false });
 
     await worker.evaluate(() => (globalThis as unknown as E2EHooks).__entzLockNow());
     expect(await status()).toMatchObject({ locked: true });
     await page.reload();
-    await expect(page.locator("[data-entz-unlock]")).toBeVisible();
-    await expect(entries(page)).toHaveCount(0);
+    await scanned(page);
+    await hoverToken(page, "#para");
+    await expect(card(page)).toContainText("Locked · click to unlock");
     await page.close();
   });
 
-  test("locking empties the pane on an open page without a reload", async () => {
+  test("locking takes the card down on an open page without a reload", async () => {
     const page = await openFixture();
-    await expect(entries(page)).toHaveCount(6);
+    await hoverToken(page, "#para");
+    await expect(cardText(page)).toHaveText(plaintext("ascii-title"));
 
     await worker.evaluate(() => (globalThis as unknown as E2EHooks).__entzLockNow());
-    await expect(entries(page)).toHaveCount(0);
-    await expect(page.locator("[data-entz-unlock]")).toBeVisible();
+    await expect(card(page)).toBeHidden();
     await expect(page.locator("#para")).toContainText(token("ascii-title"));
-    await expect(page.locator("[data-entz-pill]")).toHaveText(/Locked/);
+    await hoverNothing(page);
+    await hoverToken(page, "#para");
+    await expect(card(page)).toContainText("Locked · click to unlock");
 
     await worker.evaluate(
       (prf) => (globalThis as unknown as E2EHooks).__entzUnlockWithPrf(prf),
       E2E_PRF_HEX,
     );
-    await expect(entries(page)).toHaveCount(6);
-    await expect(page.locator("[data-entz-unlock]")).toHaveCount(0);
+    await hoverNothing(page);
+    await hoverToken(page, "#para");
+    await expect(cardText(page)).toHaveText(plaintext("ascii-title"));
     await page.close();
   });
 

@@ -2,9 +2,8 @@
 
 Linear has no private issues: anyone in the workspace can read every title and
 description. **entziffer** encrypts an issue's title and description to your public key
-before it ever reaches Linear, and a Chrome extension decrypts them into a floating pane
-beside the page while you browse — issue list, board, detail view, notifications, search
-results. To everyone else the issue is a `ENTZ1:…` string. The private key never leaves your
+before it ever reaches Linear, and a Chrome extension decrypts them into a card under your
+cursor while you browse — issue list, board, detail view, notifications, search results. To everyone else the issue is a `ENTZ1:…` string. The private key never leaves your
 browser profile, so a Claude Code agent (or a teammate's script) can *write* private issues
 for you with nothing but your public key.
 
@@ -30,19 +29,21 @@ working. The wire format is specified byte for byte in [docs/format.md](docs/for
 [`reference/encrypt.mjs`](reference/encrypt.mjs) is a single dependency-free file that
 implements it if you would rather not trust npm.
 
-**Reading and editing an encrypted field.** entziffer never rewrites the page's text. Every
+**Reading an encrypted field.** entziffer never rewrites the page's text. Every
 token stays exactly as the page rendered it and stays fully readable as `ENTZ1:…` — a CSS Custom
 Highlight styles only the `ENTZ1:` marker at the head of each token, as a small tag, so tokens
-are easy to pick out, nothing shifts, and selecting or copying still yields the ciphertext. The
-plaintext appears in a floating pane beside the page — think a Markdown preview next to the
-source — which lists every token on the page, editable and inert alike, and which clicking a
-token in the page opens at its entry. Inert tokens are read-only with a *Copy* button; a token
-inside an editor is editable in the pane only — editing it in the page itself is refused, and
-your keystrokes are sent to the pane's text box — and what you type there is re-encrypted to
-your own key and written back into the field as ciphertext, so the plaintext never enters the
-editor unless you click *Insert plaintext*, which replaces the ciphertext in the field for
-real — saving it then stores the plaintext in Linear, which is how you declassify or edit an
-issue.
+are easy to pick out, nothing shifts, and selecting or copying still yields the ciphertext. At
+rest nothing else is on screen at all. Hover a token and its plaintext
+appears in a card beside the cursor, following it — a tooltip that speaks the page's own language, since
+the text is drawn in the same font, size, weight, and colour as the ciphertext it replaces and
+wrapped at that element's width. The card is that plaintext and nothing else — it has no
+buttons. Clicking a token pins its card until you hover another one or press Escape, which is
+when you can select the text in it and copy it by hand; tokens encrypted to somebody else get a
+grey tag and a grey *Encrypted for someone else* card. Editing a token in the page's own editor
+is refused, since editing ciphertext would corrupt it; the refused edit pins that token's card
+by its tag instead. entziffer makes no writes of its own: to change an encrypted field, copy
+the plaintext off the card, encrypt the new value through the CLI, and paste the ciphertext
+back into Linear.
 
 ## Quick start (5 minutes)
 
@@ -77,11 +78,12 @@ Full details, per-repo skill installs, and a verification step: [docs/install.md
 ## Locking and unlocking
 
 At rest the extension holds `{credentialId, publicKey, fingerprint}` and nothing else. The
-pane carries a pill — a padlock and a token count — under its bottom-left corner, which reads
-*Locked* for a new browser session; click it, approve the Touch ID prompt, and the plaintext
-appears in the pane. The derived key lives in the extension's session store until the browser
-restarts, until **Lock now**, or until the auto-lock timeout (1, 4, 12, or 24 hours; 12 by
-default).
+extension leaves no permanent mark on a page at all: the tags are drawn by the browser's own
+highlight, and the only node it adds is the hidden host for the hover card. For a new browser
+session it is locked, and hovering a token shows a *Locked · click to unlock* card; click the
+token, approve the Touch ID prompt, and tokens start answering the cursor. The derived key lives
+in the extension's session store until the browser restarts, until **Lock now**, or until the
+auto-lock timeout (1, 4, 12, or 24 hours; 12 by default).
 
 | Adversary | Result |
 | --- | --- |

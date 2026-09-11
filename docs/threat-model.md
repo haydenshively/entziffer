@@ -98,50 +98,51 @@ Failure modes: an authenticator without PRF support answers `PRF_UNSUPPORTED` an
 stored; dismissing the prompt is `PASSKEY_CANCELLED` and leaves the state unchanged; a passkey
 that derives a different key answers `KEY_MISMATCH` rather than replacing your identity.
 
-## Rendering: tagged in the page, edited in the pane
+## Rendering: tagged in the page, read under the cursor
 
 There is one rendering mode, and it never touches the page's text. The only node the extension
-adds to a page is the shadow host for its own pane.
+adds to a page is the shadow host for its hover card, hidden until you hover a token.
 
 - **Tagged in the page.** Every known token — a list row, a board card, a notification, a
   read-only description, a token inside an editor — is marked with a CSS Custom Highlight,
   which styles a live `Range` without mutating the DOM. That is what makes it safe inside an
   editor: nothing round-trips back to the server. The ciphertext itself is left exactly as the
-  page rendered it, fully readable as `ENTZ1:…`; the highlight covers only the `ENTZ1:` marker at
-  the head of the token and draws it as a small tag — a light accent fill with accent text — so
-  the token is easy to pick out, the layout does not shift, and selecting or copying still yields
-  the ciphertext. A token encrypted to somebody else gets a grey tag. While a pane entry is
-  hovered or being edited, that token's tag lights up — solid accent, inverted text — and every
-  other tag dims; hovering a token in the page marks its pane entry, and clicking one opens its
-  pane entry and puts the caret there. Nothing animates.
-- **The pane.** Plaintext appears in exactly one place: a floating pane in its own shadow root,
-  listing every token on the page in document order. Inert tokens are shown read-only with a
-  **Copy** button. A token inside an editor — `[contenteditable]`, `.ProseMirror`,
-  `[role="textbox"]`, `input`, `textarea` — is editable in the pane instead.
+  page rendered it, fully readable as `ENTZ1:…`; one highlight draws the `ENTZ1:` marker at the
+  head of the token as a small tag — a light accent fill with accent text — and a second fades
+  the ciphertext after it to 65% of the text's own colour, so the token is easy to pick out and
+  easy to read past, the layout does not shift, and selecting or copying still yields the
+  ciphertext. A token encrypted to somebody else gets a grey tag instead. While a token is
+  hovered, its ciphertext returns to full strength; the tags never change. Nothing animates.
+- **Read under the cursor.** Nothing is decrypted on screen until you hover a token, and then
+  exactly one card appears, in its own shadow root, beside the cursor, following it across the
+  token and flipping to stay on screen. It holds that one token's plaintext, read-only, and
+  nothing else — the card carries no buttons — drawn in the typography of the element the
+  ciphertext came from and wrapped at its width, so it reads as the page would have read. A
+  token encrypted to somebody else gets a grey *Encrypted for someone else* card naming the
+  fingerprint instead. The card goes away the moment the cursor leaves the token; clicking a
+  token pins its card until the cursor reaches another token or Escape is pressed, and a pinned
+  card's text can be selected and copied by hand. Nothing in entziffer edits ciphertext or
+  re-encrypts, and the content script does not encrypt at all.
 - **Editing in the page is refused.** An edit landing on ciphertext would either corrupt the
   token past decryption or, if you typed plaintext beside it, leak that plaintext to the host
-  application on the next save — so edits are routed to the pane rather than allowed in place.
-  In the page's own editors, typing, Backspace/Delete/Enter, paste, cut, and drop whose target
-  touches a token (its edges included) are cancelled before the browser or the editor acts, and
-  keyboard focus moves to that token's text box in the pane, where the edit happens and is
-  re-encrypted back into the field. Prose around the token stays editable in place, and copying
-  and selecting the ciphertext are untouched; the extension's own two writes — re-encryption and
-  **Insert plaintext** — bypass the guard.
+  application on the next save. In the page's own editors, typing, Backspace/Delete/Enter,
+  paste, cut, and drop whose target touches a token (its edges included) are cancelled before
+  the browser or the editor acts, and the refused edit pins that token's card by its tag
+  instead. Prose around the token stays editable in place, and copying and selecting the
+  ciphertext are untouched.
 
-Each editable pane entry is a text box: what you type there is re-encrypted to your own key
-(debounced) and written back into the field as ciphertext, so the plaintext never enters the
-editor unless you click **Insert plaintext** — the one thing in entziffer that puts cleartext
-into an editor. It is never automatic: you click it, the ciphertext in that field is replaced by
-whatever the pane's box holds, through the editor's own input pipeline, and saving the field
-afterwards persists the plaintext to the host application, visible to everyone with access to
-it. That is the intended path for declassifying an issue; the only other write an editor ever
-sees is a token replacing a token, both through the same pipeline.
+entziffer does not try to be an editor: modern editors are WYSIWYG surfaces with their own
+commands, and reimplementing them inside a card is not the business it is in. So it never puts
+cleartext into an editor, and makes no writes to a page at all — no action in the extension
+modifies the page's text. To change an encrypted field's contents, copy the plaintext from the
+pinned card (or read it there), encrypt the new value through the CLI, and paste the resulting
+ciphertext into the host's own editor.
 
 Because the page's own text is never rewritten, a page that scrapes its rendered content sees
-ciphertext. Plaintext exists only inside the extension's shadow root: the pane's text boxes are
-the only DOM nodes on a page that ever hold it. That is not isolation — the pane still lives in
-the tab's document and the plaintext still exists in the tab's process, so page script that
-reaches into the shadow root can read it. Hardening that — an isolated rendering surface, no
+ciphertext. Plaintext exists only inside the extension's shadow root: the card is the only DOM
+node on a page that ever holds it, and only while you hover. That is not isolation — the card
+still lives in the tab's document and the plaintext still exists in the tab's process, so page
+script that reaches into the shadow root can read it. Hardening that — an isolated rendering surface, no
 plaintext reachable from page script — is tracked in
 [issue #1](https://github.com/haydenshively/entziffer/issues/1).
 

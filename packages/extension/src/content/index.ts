@@ -1,24 +1,20 @@
-import {
-  type EntzPublicKey,
-  encrypt,
-  formatFingerprint,
-  importPublicKey,
-  MARKER,
-  parseEnvelope,
-} from "@entziffer/core";
+import { formatFingerprint, MARKER, parseEnvelope } from "@entziffer/core";
 import { type Broadcast, send } from "../shared/messages.js";
-import { allowingWrites, installGuard } from "./guard.js";
-import { activeLayer, dimLayer, foreignLayer, tagLayer } from "./highlight.js";
-import { replaceInEditor } from "./insert.js";
+import { installGuard } from "./guard.js";
+import { allLayers, dimLayer, foreignLayer, tagLayer } from "./highlight.js";
 import {
-  focusEntry,
   isPaneEvent,
-  type PaneEntry,
+  moveCard,
   type PaneHandlers,
-  preservingPaneFocus,
+  type Point,
+  type Preview,
   removePane,
   renderPane,
-  setActive,
+  shownKey,
+  showPreview,
+  TYPOGRAPHY_PROPERTIES,
+  type Typography,
+  type TypographyProperty,
 } from "./pane.js";
 import { isAttached, isOwnNode, rangeOf, scan, type TokenLocation } from "./scan.js";
 
@@ -32,12 +28,16 @@ type CacheEntry = { ok: true; text: string } | { ok: false; code: string };
 
 const LOCKED: CacheEntry = { ok: false, code: "LOCKED" };
 
-/** One token the pane speaks for: `range` is the whole token, `tag` the marker the layers style. */
+/**
+ * One token the card speaks for: `range` is the whole token, `tag` the marker the tag layer
+ * styles, `body` the ciphertext after it that the dim layer fades.
+ */
 interface Known {
   key: string;
   loc: TokenLocation;
   range: Range;
   tag: Range;
+  body: Range;
   result: CacheEntry;
 }
 
@@ -45,18 +45,11 @@ const cache = new Map<string, CacheEntry>();
 let known: Known[] = [];
 let nextKey = 0;
 
-let identity: string | null = null;
-let recipient: EntzPublicKey | null = null;
-/**
- * Ciphertext this content script just wrote into an editor, mapped to the pane entry that produced
- * it: the rescan sees a brand-new token where the old one was, and reusing the key keeps the row —
- * and the caret inside it — alive across the rewrite.
- */
-const pendingRewrite = new Map<string, string>();
-/** Where the cursor is and what it is over; `null` when it is over nothing of ours. */
-let pointer: { source: "page" | "pane"; key: string } | null = null;
-/** The entry whose textarea has keyboard focus, independent of where the cursor is. */
-let typing: string | null = null;
+/** The token under the cursor in the page, if any, and where the cursor last was. */
+let hovered: string | null = null;
+let cursor: Point = { x: 0, y: 0 };
+/** A token shown until the cursor moves on: a click on it, or an edit the page refused. */
+let pinnedKey: string | null = null;
 let hoverFrame = 0;
 
 let locked = false;
@@ -101,154 +94,189 @@ function isStale(k: Known): boolean {
   }
 }
 
-const layers = () => [tagLayer(), activeLayer(), dimLayer(), foreignLayer()];
-
 function forget(k: Known): void {
-  for (const layer of layers()) layer.delete(k.tag);
+  for (const layer of allLayers()) {
+    layer.delete(k.tag);
+    layer.delete(k.body);
+  }
 }
 
 function clearHighlights(): void {
-  for (const layer of layers()) layer.clear();
+  for (const layer of allLayers()) layer.clear();
+}
+
+/** The colour the token's text is drawn in, which is what its fade must be mixed from. */
+function textColorOf(k: Known): string {
+  const el = k.range.startContainer.parentElement;
+  return el === null ? "canvastext" : getComputedStyle(el).color;
 }
 
 /**
- * Every known token's marker is tagged, in exactly one layer: the plain tag, or the foreign tag
- * for a token this key cannot open. While `active` names an entry, its tag lights up and every
- * other one dims.
+ * Every known token's marker is tagged in the accent, or in grey when this key cannot open it,
+ * and every ciphertext body is faded except the one under the cursor.
  */
 function paint(active: string | null): void {
   clearHighlights();
   for (const k of known) {
-    if (active === null) (k.result.ok || locked ? tagLayer() : foreignLayer()).add(k.tag);
-    else (k.key === active ? activeLayer() : dimLayer()).add(k.tag);
+    (k.result.ok || locked ? tagLayer() : foreignLayer()).add(k.tag);
+    if (k.key !== active) dimLayer(textColorOf(k)).add(k.body);
   }
 }
 
-/** The `ENTZ1:` marker at the head of a token, or the whole token when the marker is split across nodes. */
-function tagOf(loc: TokenLocation, range: Range): Range {
+/**
+ * Splits a token's range at the end of its `ENTZ1:` marker into the tag and the ciphertext body.
+ * A marker split across text nodes makes the whole token the tag and leaves an empty body.
+ */
+function split(loc: TokenLocation, range: Range): { tag: Range; body: Range } {
   const at = loc.token.indexOf(MARKER);
   const end = loc.startOffset + at + MARKER.length;
-  if (at < 0 || end > loc.startNode.length) return range;
+  const body = range.cloneRange();
+  if (at < 0 || end > loc.startNode.length) {
+    body.collapse(false);
+    return { tag: range, body };
+  }
   const tag = range.cloneRange();
   tag.setStart(loc.startNode, loc.startOffset + at);
   tag.setEnd(loc.startNode, end);
-  return tag;
+  body.setStart(loc.startNode, end);
+  return { tag, body };
+}
+
+function typographyOf(k: Known): Typography {
+  const el = k.range.startContainer.parentElement ?? document.body;
+  const style = getComputedStyle(el);
+  const block = el.closest("p, h1, h2, h3, h4, h5, h6, li, td, th, div, span") ?? el;
+  const styles = {} as Record<TypographyProperty, string>;
+  for (const property of TYPOGRAPHY_PROPERTIES) {
+    styles[property] = style.getPropertyValue(property);
+  }
+  return { styles, blockWidth: block.getBoundingClientRect().width };
+}
+
+function toPreview(k: Known): Preview {
+  return {
+    key: k.key,
+    text: k.result.ok ? k.result.text : null,
+    reason: locked
+      ? "locked"
+      : k.result.ok
+        ? null
+        : k.result.code === "FPR_MISMATCH"
+          ? "foreign"
+          : "broken",
+    fingerprint:
+      !k.result.ok && k.result.code === "FPR_MISMATCH" ? fingerprintOf(k.loc.token) : null,
+    typography: typographyOf(k),
+  };
 }
 
 /**
- * One rule decides what is highlighted on both sides: the cursor wins, then the textarea being
- * typed in. The pane only scrolls to an entry the cursor found in the page.
+ * One rule decides what the page lights up and what the card shows: the token under the cursor,
+ * else the one it was pinned to, else nothing. The card sits by the cursor while it is over the
+ * token, and by the token's tag when it was pinned from elsewhere.
  */
 function renderActive(): void {
-  const active = pointer?.key ?? typing;
-  paint(active);
-  setActive(active, pointer?.source === "page");
+  show(hovered ?? pinnedKey);
 }
 
-function setPointer(next: typeof pointer): void {
-  if (pointer?.source === next?.source && pointer?.key === next?.key) return;
-  pointer = next;
+function show(key: string | null): void {
+  const k = key === null ? undefined : known.find((entry) => entry.key === key);
+  paint(k?.key ?? null);
+  if (k === undefined) {
+    showPreview(null);
+    return;
+  }
+  const already = shownKey() === k.key;
+  if (hovered === k.key) showPreview(toPreview(k), cursor);
+  else if (already) showPreview(toPreview(k));
+  else {
+    const rect = k.tag.getClientRects()[0];
+    showPreview(toPreview(k), rect === undefined ? cursor : { x: rect.left, y: rect.bottom });
+  }
+}
+
+function setHovered(key: string | null): void {
+  if (hovered === key) return;
+  hovered = key;
+  if (key !== null && key !== pinnedKey) pinnedKey = null;
   renderActive();
 }
 
-async function reencrypt(key: string, value: string): Promise<void> {
-  const to = await recipientKey();
-  if (to === null || value === "") return;
-  const token = await encrypt(value, to);
-  // Encrypting takes long enough for an Insert plaintext click, or the page itself, to have moved
-  // the token out from under this range; writing through a stale one would corrupt the field.
-  const k = known.find((entry) => entry.key === key);
-  if (k === undefined || isStale(k)) return;
-  cacheSet(token, { ok: true, text: value });
-  pendingRewrite.set(token, key);
-  const written = preservingPaneFocus(() => allowingWrites(() => replaceInEditor(k.loc, token)));
-  if (!written) pendingRewrite.delete(token);
-}
-
 const handlers: PaneHandlers = {
-  insert(key, value) {
-    const k = known.find((entry) => entry.key === key);
-    if (k === undefined || isStale(k)) return false;
-    if (!allowingWrites(() => replaceInEditor(k.loc, value))) return false;
-    forget(k);
-    known = known.filter((entry) => entry !== k);
-    refreshPane();
-    return true;
-  },
-  edit(key, value) {
-    void reencrypt(key, value);
-  },
-  hover(key) {
-    setPointer(key === null ? null : { source: "pane", key });
-  },
-  typing(key) {
-    typing = key;
-    renderActive();
-  },
   unlock() {
     void send({ type: "requestUnlock" });
   },
 };
 
-async function recipientKey(): Promise<EntzPublicKey | null> {
-  if (identity === null) return null;
-  if (recipient !== null) return recipient;
-  try {
-    recipient = await importPublicKey(identity);
-  } catch {
-    recipient = null;
+/**
+ * Whether (`x`, `y`) is over `range`. A range's client rects cover only the glyph boxes, so a
+ * wrapped token has a dead strip between its lines wherever the line height exceeds the font;
+ * each line's hit area therefore reaches to the midpoint of the gap to the line above and below.
+ */
+function hits(range: Range, x: number, y: number): boolean {
+  const rects = [...range.getClientRects()].sort((a, b) => a.top - b.top);
+  for (const [i, rect] of rects.entries()) {
+    if (x < rect.left - HIT_SLACK_PX || x > rect.right + HIT_SLACK_PX) continue;
+    const above = rects
+      .slice(0, i)
+      .reverse()
+      .find((r) => r.bottom <= rect.top);
+    const below = rects.slice(i + 1).find((r) => r.top >= rect.bottom);
+    const top = above === undefined ? rect.top - HIT_SLACK_PX : (above.bottom + rect.top) / 2;
+    const bottom = below === undefined ? rect.bottom + HIT_SLACK_PX : (rect.bottom + below.top) / 2;
+    if (y >= top && y <= bottom) return true;
   }
-  return recipient;
-}
-
-async function refreshIdentity(): Promise<void> {
-  const reply = await send({ type: "getStatus" });
-  const next = reply.ok ? (reply.data.status.identity?.publicKey ?? null) : null;
-  if (next === identity) return;
-  identity = next;
-  recipient = null;
+  return false;
 }
 
 function hitTest(x: number, y: number): string | null {
-  for (const k of known) {
-    for (const rect of k.range.getClientRects()) {
-      if (
-        x >= rect.left - HIT_SLACK_PX &&
-        x <= rect.right + HIT_SLACK_PX &&
-        y >= rect.top - HIT_SLACK_PX &&
-        y <= rect.bottom + HIT_SLACK_PX
-      ) {
-        return k.key;
-      }
-    }
-  }
-  return null;
+  return known.find((k) => hits(k.range, x, y))?.key ?? null;
 }
 
 function onPointerMove(event: MouseEvent): void {
   if (known.length === 0 || hoverFrame !== 0) return;
   if (isPaneEvent(event)) {
-    if (pointer?.source === "page") setPointer(null);
+    setHovered(null);
     return;
   }
   const { clientX, clientY } = event;
   hoverFrame = requestAnimationFrame(() => {
     hoverFrame = 0;
-    if (pointer?.source === "pane") return;
+    cursor = { x: clientX, y: clientY };
     const key = hitTest(clientX, clientY);
-    setPointer(key === null ? null : { source: "page", key });
+    setHovered(key);
+    if (key !== null && key === shownKey()) moveCard(cursor);
   });
 }
 
 function onPointerLeave(): void {
-  if (pointer?.source === "page") setPointer(null);
+  setHovered(null);
 }
 
-/** A click on a token's tag opens its entry in the pane, where the editing happens. */
+/**
+ * A click on a token keeps its card up until the cursor finds another token or Escape is pressed;
+ * while the session is locked it asks to unlock instead.
+ */
 function onClick(event: MouseEvent): void {
   if (isPaneEvent(event)) return;
   const key = hitTest(event.clientX, event.clientY);
-  if (key !== null) focusEntry(key);
+  if (key !== null && locked) {
+    handlers.unlock();
+    return;
+  }
+  pinnedKey = key;
+  renderActive();
+}
+
+function onKeyDown(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || pinnedKey === null) return;
+  pinnedKey = null;
+  renderActive();
+}
+
+function pin(key: string): void {
+  pinnedKey = key;
+  renderActive();
 }
 
 function fingerprintOf(token: string): string | null {
@@ -259,24 +287,15 @@ function fingerprintOf(token: string): string | null {
   }
 }
 
-function toEntry(k: Known): PaneEntry {
-  return {
-    key: k.key,
-    text: k.result.ok ? k.result.text : null,
-    fingerprint:
-      !k.result.ok && k.result.code === "FPR_MISMATCH" ? fingerprintOf(k.loc.token) : null,
-    editable: k.loc.editable,
-  };
-}
-
 function refreshPane(): void {
   if (known.length === 0) {
     removePane();
     return;
   }
   known.sort((a, b) => a.range.compareBoundaryPoints(Range.START_TO_START, b.range));
-  renderPane({ entries: known.map(toEntry), locked, writable: identity !== null, handlers });
-  paint(pointer?.key ?? typing);
+  renderPane(known.length, handlers);
+  if (pinnedKey !== null && !known.some((k) => k.key === pinnedKey)) pinnedKey = null;
+  renderActive();
 }
 
 function remember(loc: TokenLocation, result: CacheEntry): void {
@@ -285,10 +304,8 @@ function remember(loc: TokenLocation, result: CacheEntry): void {
     existing.result = result;
     return;
   }
-  const reused = pendingRewrite.get(loc.token);
-  pendingRewrite.delete(loc.token);
   const range = rangeOf(loc);
-  known.push({ key: reused ?? `entz-${nextKey++}`, loc, range, tag: tagOf(loc, range), result });
+  known.push({ key: `entz-${nextKey++}`, loc, range, ...split(loc, range), result });
 }
 
 async function processPendingRoots(): Promise<void> {
@@ -366,14 +383,12 @@ function stop(): void {
   observer = null;
   clearHighlights();
   known = [];
-  pendingRewrite.clear();
-  pointer = null;
-  typing = null;
+  hovered = null;
+  pinnedKey = null;
   removePane();
 }
 
-async function start(): Promise<void> {
-  await refreshIdentity();
+function start(): void {
   if (observer === null) {
     observer = new MutationObserver(onMutations);
     observer.observe(document, {
@@ -391,7 +406,6 @@ async function start(): Promise<void> {
 chrome.runtime.onMessage.addListener((message: Broadcast) => {
   if (message.type === "unlocked") {
     locked = false;
-    void refreshIdentity();
     schedule(document.body);
     return;
   }
@@ -399,14 +413,15 @@ chrome.runtime.onMessage.addListener((message: Broadcast) => {
   locked = true;
   cache.clear();
   stop();
-  void start();
+  start();
 });
 
 document.addEventListener("mousemove", onPointerMove, { passive: true });
 document.addEventListener("mouseleave", onPointerLeave);
 document.addEventListener("click", onClick);
+document.addEventListener("keydown", onKeyDown);
 installGuard({
   tokens: () => known.filter((k) => k.loc.editable),
-  onBlocked: (key) => void focusEntry(key),
+  onBlocked: pin,
 });
-void start();
+start();

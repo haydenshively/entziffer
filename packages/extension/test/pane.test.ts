@@ -1,35 +1,46 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  ACTIVE_ATTR,
-  COLLAPSE_ATTR,
-  COUNT_ATTR,
-  ENTRY_ATTR,
-  INSERT_ATTR,
-  PANE_ATTR,
-  type PaneEntry,
+  CARD_ATTR,
+  LOCKED_ATTR,
+  moveCard,
   type PaneHandlers,
-  PILL_ATTR,
-  RECT_KEY,
+  type Preview,
   removePane,
   renderPane,
-  setActive,
-  UNLOCK_ATTR,
-  WINDOW_ATTR,
+  shownKey,
+  showPreview,
+  TEXT_ATTR,
+  TYPOGRAPHY_PROPERTIES,
 } from "../src/content/pane.js";
 import { HOST_ATTR } from "../src/content/shadow.js";
 
 const handlers: PaneHandlers = {
-  insert: vi.fn(() => true),
-  edit: vi.fn(),
-  hover: vi.fn(),
-  typing: vi.fn(),
   unlock: vi.fn(),
 };
 
-const entry = (over: Partial<PaneEntry> & { key: string }): PaneEntry => ({
+const typography: Preview["typography"] = {
+  styles: {
+    ...(Object.fromEntries(
+      TYPOGRAPHY_PROPERTIES.map((p) => [p, ""]),
+    ) as Preview["typography"]["styles"]),
+    "font-family": "Georgia, serif",
+    "font-size": "18px",
+    "font-weight": "700",
+    "font-style": "italic",
+    "font-feature-settings": '"tnum"',
+    "line-height": "27px",
+    "letter-spacing": "0.5px",
+    "text-transform": "uppercase",
+    color: "rgb(10, 20, 30)",
+  },
+  blockWidth: 420,
+};
+
+const preview = (over: Partial<Preview> & { key: string }): Preview => ({
   text: "hello",
+  reason: null,
   fingerprint: null,
-  editable: true,
+  typography,
   ...over,
 });
 
@@ -39,26 +50,10 @@ function shadow(): ShadowRoot {
   return host.shadowRoot;
 }
 
-const entries = (): Element[] => [...shadow().querySelectorAll(`[${ENTRY_ATTR}]`)];
-
-const textareas = (): string[] =>
-  [...shadow().querySelectorAll("textarea")].map((el) => (el as HTMLTextAreaElement).value);
-
-const render = (list: PaneEntry[], locked = false, writable = true): void =>
-  renderPane({ entries: list, locked, writable, handlers });
-
-const textareaOf = (index: number): HTMLTextAreaElement =>
-  shadow().querySelectorAll("textarea")[index] as HTMLTextAreaElement;
-
-const type = (el: HTMLTextAreaElement, value: string): void => {
-  el.value = value;
-  el.dispatchEvent(new Event("input"));
-};
+const card = (): HTMLElement => shadow().querySelector(`[${CARD_ATTR}]`) as HTMLElement;
 
 beforeEach(() => {
-  (globalThis as Record<string, unknown>).chrome = {
-    storage: { local: { get: async () => ({}), set: async () => undefined } },
-  };
+  (globalThis as Record<string, unknown>).chrome = {};
 });
 
 afterEach(() => {
@@ -68,188 +63,95 @@ afterEach(() => {
 });
 
 describe("renderPane", () => {
-  it("mounts one entry per token with its plaintext in a textarea", () => {
-    render([
-      entry({ key: "a", text: "first" }),
-      entry({ key: "b", text: "second" }),
-      entry({ key: "c", text: "third" }),
-    ]);
-    expect(entries()).toHaveLength(3);
-    expect(textareas()).toEqual(["first", "second", "third"]);
-    expect(shadow().querySelector(`[${COUNT_ATTR}]`)?.textContent).toBe("3 encrypted");
-    expect(shadow().querySelector(`[${PANE_ATTR}]`)).not.toBeNull();
-  });
-
-  it("offers editing and Insert plaintext only for tokens sitting in an editable region", () => {
-    render([entry({ key: "a", editable: true }), entry({ key: "b", editable: false })]);
-    const [editable, inert] = entries();
-    expect(editable?.querySelector(`[${INSERT_ATTR}]`)).not.toBeNull();
-    expect(editable?.querySelector("textarea")?.readOnly).toBe(false);
-    expect(inert?.querySelector(`[${INSERT_ATTR}]`)).toBeNull();
-    expect(inert?.querySelector("[data-entz-copy]")).not.toBeNull();
-    expect(inert?.querySelector("textarea")?.readOnly).toBe(true);
-    expect(inert?.querySelector("textarea")?.value).toBe("hello");
-  });
-
-  it("labels a token that fails to decrypt for a reason other than its recipient", () => {
-    render([entry({ key: "a", text: null, fingerprint: null, editable: false })]);
-    expect(entries()[0]?.textContent).toContain("Couldn't decrypt this token");
-  });
-
-  it("keeps the pill through collapse and expand, flipping its lock open only while expanded", () => {
-    render([entry({ key: "a" }), entry({ key: "b" })]);
-    const pill = shadow().querySelector(`[${PILL_ATTR}]`) as HTMLButtonElement;
-    const window = shadow().querySelector(`[${WINDOW_ATTR}]`) as HTMLElement;
-    const shackle = (): string | null =>
-      pill.querySelectorAll("path")[1]?.getAttribute("d") ?? null;
-    expect(pill.textContent).toBe("2");
-    expect(pill.getAttribute("aria-expanded")).toBe("true");
-    const open = shackle();
-
-    (shadow().querySelector(`[${COLLAPSE_ATTR}]`) as HTMLButtonElement).click();
-    expect(window.hidden).toBe(true);
-    expect(pill.isConnected).toBe(true);
-    expect(pill.getAttribute("aria-expanded")).toBe("false");
-    expect(shackle()).not.toBe(open);
-
-    pill.click();
-    expect(window.hidden).toBe(false);
-    expect(shackle()).toBe(open);
-
-    render([entry({ key: "a" }), entry({ key: "b" })], true);
-    expect(pill.textContent).toBe("Locked");
-    expect(shackle()).not.toBe(open);
-    pill.click();
-    expect(window.hidden).toBe(true);
-    pill.click();
-    expect(handlers.unlock).toHaveBeenCalledOnce();
-    expect(window.hidden).toBe(true);
-  });
-
-  it("inserts the edited textarea value rather than the original plaintext", () => {
-    render([entry({ key: "a", text: "hello" })]);
-    const textarea = shadow().querySelector("textarea") as HTMLTextAreaElement;
-    textarea.value = "edited";
-    (shadow().querySelector(`[${INSERT_ATTR}]`) as HTMLButtonElement).click();
-    expect(handlers.insert).toHaveBeenCalledWith("a", "edited");
-  });
-
-  it("names the other recipient for a token it cannot decrypt", () => {
-    render([entry({ key: "a", text: null, fingerprint: "1a2b-3c4d", editable: false })]);
-    expect(entries()[0]?.textContent).toContain("Encrypted for someone else · 1a2b-3c4d");
-    expect(shadow().querySelectorAll("textarea")).toHaveLength(0);
-  });
-
-  it("shows one Unlock button and no entries while the session is locked", () => {
-    render([entry({ key: "a" }), entry({ key: "b" })], true);
-    expect(entries()).toHaveLength(0);
-    const unlock = shadow().querySelector(`[${UNLOCK_ATTR}]`) as HTMLButtonElement;
-    expect(unlock.textContent).toBe("Unlock");
-    expect(shadow().textContent).toContain("2 encrypted tokens waiting");
-    unlock.click();
-    expect(handlers.unlock).toHaveBeenCalled();
-  });
-
-  it("hovering an entry focuses its token and leaving clears the layers", () => {
-    render([entry({ key: "a" }), entry({ key: "b" })]);
-    entries()[1]?.dispatchEvent(new MouseEvent("mouseenter"));
-    expect(handlers.hover).toHaveBeenLastCalledWith("b");
-    entries()[1]?.dispatchEvent(new MouseEvent("mouseleave"));
-    expect(handlers.hover).toHaveBeenLastCalledWith(null);
+  it("mounts only a hidden card for a page with tokens", () => {
+    renderPane(3, handlers);
+    expect([...shadow().children].map((el) => el.tagName.toLowerCase())).toContain("div");
+    expect(shadow().querySelectorAll("div")).toHaveLength(1);
+    expect(card().hidden).toBe(true);
+    expect(shownKey()).toBeNull();
   });
 
   it("unmounts entirely once the last token is gone", () => {
-    render([entry({ key: "a" })]);
+    renderPane(1, handlers);
     expect(document.querySelector(`[${HOST_ATTR}]`)).not.toBeNull();
-    render([]);
+    renderPane(0, handlers);
     expect(document.querySelector(`[${HOST_ATTR}]`)).toBeNull();
   });
+});
 
-  it("keeps a row's textarea across a rerender of the same keys", () => {
-    render([entry({ key: "a", text: "first" }), entry({ key: "b", text: "second" })]);
-    const [first, second] = [textareaOf(0), textareaOf(1)];
-    render([entry({ key: "a", text: "first" }), entry({ key: "b", text: "second" })]);
-    expect(textareaOf(0)).toBe(first);
-    expect(textareaOf(1)).toBe(second);
+describe("showPreview", () => {
+  it("shows one plaintext in the token's own typography, then takes it down", () => {
+    renderPane(2, handlers);
+    showPreview(preview({ key: "a", text: "Fix the login redirect loop" }));
+    expect(card().hidden).toBe(false);
+    expect(shownKey()).toBe("a");
+    const text = card().querySelector(`[${TEXT_ATTR}]`) as HTMLElement;
+    expect(text.textContent).toBe("Fix the login redirect loop");
+    expect(text.style.fontFamily).toBe("Georgia, serif");
+    expect(text.style.fontSize).toBe("18px");
+    expect(text.style.fontWeight).toBe("700");
+    expect(text.style.fontStyle).toBe("italic");
+    expect(text.style.getPropertyValue("font-feature-settings")).toBe('"tnum"');
+    expect(text.style.lineHeight).toBe("27px");
+    expect(text.style.letterSpacing).toBe("0.5px");
+    expect(text.style.textTransform).toBe("uppercase");
+    expect(text.style.color).toBe("rgb(10, 20, 30)");
+    expect(card().style.maxWidth).toBe("420px");
+
+    showPreview(null);
+    expect(card().hidden).toBe(true);
+    expect(card().childNodes).toHaveLength(0);
+    expect(shownKey()).toBeNull();
   });
 
-  it("never overwrites the value of a focused textarea", () => {
-    render([entry({ key: "a", text: "hello" })]);
-    const textarea = textareaOf(0);
-    textarea.focus();
-    type(textarea, "half-typed");
-    render([entry({ key: "a", text: "hello" })]);
-    expect(textareaOf(0)).toBe(textarea);
-    expect(textarea.value).toBe("half-typed");
+  it("sits beside the point it is shown at and flips to stay inside the viewport", () => {
+    renderPane(1, handlers);
+    // jsdom lays out nothing, so the card is 0×0: it sits 14px up and 14px right of the point.
+    showPreview(preview({ key: "a" }), { x: 100, y: 200 });
+    expect(card().style.left).toBe("114px");
+    expect(card().style.top).toBe("186px");
+    moveCard({ x: 150, y: 260 });
+    expect(card().style.left).toBe("164px");
+    expect(card().style.top).toBe("246px");
+    // Too close to the top to fit above, it drops below the point instead.
+    moveCard({ x: 150, y: 10 });
+    expect(card().style.top).toBe("24px");
+    moveCard({ x: window.innerWidth + 10, y: window.innerHeight + 10 });
+    expect(Number.parseFloat(card().style.left)).toBeLessThan(window.innerWidth);
   });
 
-  it("re-encrypts an edited entry once the user stops typing", () => {
-    vi.useFakeTimers();
-    try {
-      render([entry({ key: "a", text: "hello" })]);
-      const textarea = textareaOf(0);
-      type(textarea, "hell");
-      type(textarea, "hello there");
-      vi.advanceTimersByTime(599);
-      expect(handlers.edit).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(1);
-      expect(handlers.edit).toHaveBeenCalledExactlyOnceWith("a", "hello there");
-    } finally {
-      vi.useRealTimers();
-    }
+  it("holds nothing but the plaintext: no buttons, no inputs", () => {
+    renderPane(1, handlers);
+    showPreview(preview({ key: "a" }));
+    expect(card().querySelectorAll("button, input, textarea, a")).toHaveLength(0);
+    expect(card().children).toHaveLength(1);
+    expect(card().hasAttribute(LOCKED_ATTR)).toBe(false);
   });
 
-  it("flushes the pending edit on blur and never encrypts an emptied entry", () => {
-    vi.useFakeTimers();
-    try {
-      render([entry({ key: "a", text: "hello" })]);
-      const textarea = textareaOf(0);
-      type(textarea, "edited");
-      textarea.dispatchEvent(new FocusEvent("blur"));
-      expect(handlers.edit).toHaveBeenCalledExactlyOnceWith("a", "edited");
-
-      type(textarea, "");
-      vi.advanceTimersByTime(1_000);
-      expect(handlers.edit).toHaveBeenCalledOnce();
-    } finally {
-      vi.useRealTimers();
-    }
+  it("redraws when the same token's result changes underneath it", () => {
+    renderPane(1, handlers);
+    showPreview(preview({ key: "a", text: null, reason: "locked" }));
+    expect(card().textContent).toContain("Locked");
+    showPreview(preview({ key: "a", text: "now readable" }));
+    expect(card().querySelector(`[${TEXT_ATTR}]`)?.textContent).toBe("now readable");
+    expect(card().hasAttribute(LOCKED_ATTR)).toBe(false);
   });
 
-  it("makes every textarea read-only when there is no key to encrypt to", () => {
-    vi.useFakeTimers();
-    try {
-      render([entry({ key: "a", text: "hello" })], false, false);
-      const textarea = textareaOf(0);
-      expect(textarea.readOnly).toBe(true);
-      type(textarea, "edited");
-      vi.advanceTimersByTime(1_000);
-      expect(handlers.edit).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+  it("explains a token it cannot show, and unlocks on click only while locked", () => {
+    renderPane(1, handlers);
+    showPreview(preview({ key: "a", text: null, reason: "foreign", fingerprint: "1a2b-3c4d" }));
+    expect(card().textContent).toContain("Encrypted for someone else · 1a2b-3c4d");
+    expect(card().querySelector(`[${TEXT_ATTR}]`)).toBeNull();
+    card().click();
+    expect(handlers.unlock).not.toHaveBeenCalled();
 
-  it("marks the entry the page pointer is over", () => {
-    render([entry({ key: "a" }), entry({ key: "b" })]);
-    setActive("b", true);
-    expect(entries()[0]?.hasAttribute(ACTIVE_ATTR)).toBe(false);
-    expect(entries()[1]?.hasAttribute(ACTIVE_ATTR)).toBe(true);
-    setActive(null, false);
-    expect(entries().some((el) => el.hasAttribute(ACTIVE_ATTR))).toBe(false);
-  });
+    showPreview(preview({ key: "b", text: null, reason: "broken" }));
+    expect(card().textContent).toContain("Couldn't decrypt this token");
 
-  it("restores the stored rect on mount", async () => {
-    const stored = { right: 40, bottom: 60, width: 300, height: 200, collapsed: false };
-    const get = vi.fn(async () => ({ [RECT_KEY]: stored }));
-    (globalThis as Record<string, unknown>).chrome = {
-      storage: { local: { get, set: async () => undefined } },
-    };
-    render([entry({ key: "a" })]);
-    await vi.waitFor(() => {
-      expect((shadow().querySelector(`[${PANE_ATTR}]`) as HTMLElement).style.right).toBe("40px");
-    });
-    expect((shadow().querySelector(`[${PANE_ATTR}]`) as HTMLElement).style.bottom).toBe("60px");
-    expect(get).toHaveBeenCalledWith(RECT_KEY);
+    showPreview(preview({ key: "c", text: null, reason: "locked" }));
+    expect(card().textContent).toContain("Locked · click to unlock");
+    expect(card().hasAttribute(LOCKED_ATTR)).toBe(true);
+    card().click();
+    expect(handlers.unlock).toHaveBeenCalledOnce();
   });
 });
