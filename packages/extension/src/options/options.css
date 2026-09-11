@@ -14,7 +14,7 @@ main {
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  margin-bottom: 28px;
+  margin-bottom: 26px;
 }
 
 .mark {
@@ -23,10 +23,9 @@ main {
   width: 40px;
   height: 40px;
   flex: none;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 16%, var(--glass-tint));
-  box-shadow: inset 0 1px 0 var(--glass-rim);
+  border-radius: 13px;
+  background-color: color-mix(in srgb, var(--accent) 20%, var(--control-glass));
+  box-shadow: var(--control-shadow);
   color: var(--accent);
 }
 
@@ -106,22 +105,13 @@ p {
   font-size: 13px;
 }
 
-.warn {
-  padding: 12px 14px;
-  border-radius: var(--radius-control);
-  border-left: 3px solid var(--danger);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-  font-size: 13px;
-}
-
 #reset-notice {
   border-radius: var(--radius-panel);
-  border-left-width: 4px;
+  padding: 14px 18px;
 }
 
 #danger {
-  border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
-  background: color-mix(in srgb, var(--danger) 7%, var(--glass-tint));
+  background-color: color-mix(in srgb, var(--danger) 9%, var(--glass));
 }
 
 #danger h2 {
@@ -141,12 +131,12 @@ p {
 }
 
 .glass-button.large {
-  padding: 11px 18px;
+  padding: 11px 20px;
   font-size: 14px;
 }
 
 .glass-button.small {
-  padding: 5px 11px;
+  padding: 5px 13px;
   font-size: 12.5px;
 }
 
@@ -175,10 +165,9 @@ dd {
 .key {
   flex: 1;
   min-width: 0;
-  padding: 5px 9px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--well);
+  padding: 6px 10px;
+  border-radius: 9px;
+  background-color: var(--well);
   box-shadow: var(--well-shadow);
 }
 
@@ -189,9 +178,8 @@ pre {
   flex-wrap: nowrap;
   margin: 8px 0 14px;
   padding: 11px 12px;
-  border: 1px solid var(--line);
   border-radius: var(--radius-control);
-  background: var(--well);
+  background-color: var(--well);
   box-shadow: var(--well-shadow);
   overflow: hidden;
 }
@@ -244,13 +232,11 @@ pre code {
 
 .list {
   margin: 14px 0 0;
-  padding: 0;
+  padding: 4px;
   list-style: none;
-  border: 1px solid var(--line);
   border-radius: var(--radius-control);
-  background: var(--well);
+  background-color: var(--well);
   box-shadow: var(--well-shadow);
-  overflow: hidden;
 }
 
 .list li {
@@ -258,12 +244,17 @@ pre code {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
+  min-height: 34px;
+  padding: 4px 4px 4px 10px;
+  border-radius: 9px;
 }
 
-.list li:last-child {
-  border-bottom: none;
+.list li + li {
+  margin-top: 2px;
+}
+
+.list li:hover {
+  background-color: color-mix(in srgb, var(--fg) 5%, transparent);
 }
 
 .list li code {
@@ -271,7 +262,7 @@ pre code {
 }
 
 .list li button {
-  padding: 4px 10px;
+  padding: 4px 12px;
   font-size: 12px;
 }
 
@@ -280,42 +271,8 @@ pre code {
   font-size: 13px;
 }
 
-.state-pill::after {
-  content: "No key";
-}
-
-body:has(#unlock:not([hidden])) .state-pill::after {
-  content: "Locked";
-}
-
-body:has(#lock:not([hidden])) .state-pill::after {
-  content: "Unlocked";
-}
-
-body:has(#unlock:not([hidden])) .state-pill {
-  color: #a8620a;
-  border-color: color-mix(in srgb, #a8620a 30%, transparent);
-  background: color-mix(in srgb, #a8620a 14%, var(--control-tint));
-}
-
-body:has(#lock:not([hidden])) .state-pill {
-  color: #1f8a4c;
-  border-color: color-mix(in srgb, #1f8a4c 30%, transparent);
-  background: color-mix(in srgb, #1f8a4c 14%, var(--control-tint));
-}
-
-@media (prefers-color-scheme: dark) {
-  body:has(#unlock:not([hidden])) .state-pill {
-    color: #f2b661;
-    border-color: color-mix(in srgb, #f2b661 28%, transparent);
-    background: color-mix(in srgb, #f2b661 14%, var(--control-tint));
-  }
-
-  body:has(#lock:not([hidden])) .state-pill {
-    color: #5fd39b;
-    border-color: color-mix(in srgb, #5fd39b 28%, transparent);
-    background: color-mix(in srgb, #5fd39b 14%, var(--control-tint));
-  }
+.list .empty:hover {
+  background-color: transparent;
 }
 
 #status {
@@ -327,9 +284,4 @@ body:has(#lock:not([hidden])) .state-pill {
 
 #status[data-error] {
   color: var(--danger);
-}
-
-/* Last, so it outranks the equal-specificity display rules above. */
-[hidden] {
-  display: none !important;
 }
