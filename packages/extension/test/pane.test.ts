@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CARD_ATTR,
+  GLASS_ATTR,
   LOCKED_ATTR,
   moveCard,
   type PaneHandlers,
@@ -51,6 +52,7 @@ function shadow(): ShadowRoot {
 }
 
 const card = (): HTMLElement => shadow().querySelector(`[${CARD_ATTR}]`) as HTMLElement;
+const glass = (): HTMLElement => shadow().querySelector(`[${GLASS_ATTR}]`) as HTMLElement;
 
 beforeEach(() => {
   (globalThis as Record<string, unknown>).chrome = {};
@@ -66,7 +68,8 @@ describe("renderPane", () => {
   it("mounts only a hidden card for a page with tokens", () => {
     renderPane(3, handlers);
     expect([...shadow().children].map((el) => el.tagName.toLowerCase())).toContain("div");
-    expect(shadow().querySelectorAll("div")).toHaveLength(1);
+    expect(shadow().querySelectorAll("div")).toHaveLength(2);
+    expect(glass().children).toHaveLength(0);
     expect(card().hidden).toBe(true);
     expect(shownKey()).toBeNull();
   });
@@ -100,7 +103,7 @@ describe("showPreview", () => {
 
     showPreview(null);
     expect(card().hidden).toBe(true);
-    expect(card().childNodes).toHaveLength(0);
+    expect(glass().childNodes).toHaveLength(0);
     expect(shownKey()).toBeNull();
   });
 
@@ -124,7 +127,7 @@ describe("showPreview", () => {
     renderPane(1, handlers);
     showPreview(preview({ key: "a" }));
     expect(card().querySelectorAll("button, input, textarea, a")).toHaveLength(0);
-    expect(card().children).toHaveLength(1);
+    expect(glass().children).toHaveLength(1);
     expect(card().hasAttribute(LOCKED_ATTR)).toBe(false);
   });
 

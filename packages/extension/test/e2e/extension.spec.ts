@@ -527,7 +527,7 @@ test("the card refracts its backdrop through an SVG filter and is the only thing
     .poll(() =>
       page.evaluate(() => {
         const host = document.querySelector("[data-entz-host]");
-        const el = host?.shadowRoot?.querySelector("[data-entz-card]");
+        const el = host?.shadowRoot?.querySelector("[data-entz-glass]");
         if (!(el instanceof HTMLElement)) return null;
         const map = host?.shadowRoot?.querySelector("feImage")?.getAttribute("href") ?? "";
         return `${getComputedStyle(el).backdropFilter} ${map.slice(0, 15)}`;

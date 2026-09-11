@@ -1,7 +1,10 @@
 import { attachLens } from "./lens.js";
+import { type Corner, createMotion, type Motion } from "./motion.js";
 import { createShadowHost } from "./shadow.js";
 
 export const CARD_ATTR = "data-entz-card";
+/** The glass surface inside the card; the card itself is the shell that is clipped and sprung. */
+export const GLASS_ATTR = "data-entz-glass";
 export const TEXT_ATTR = "data-entz-text";
 /** Set while the card says the session is locked, which makes a click on it ask to unlock. */
 export const LOCKED_ATTR = "data-entz-locked";
@@ -77,10 +80,17 @@ export interface Point {
 interface Pane {
   host: HTMLElement;
   card: HTMLElement;
+  glass: HTMLElement;
   handlers: PaneHandlers;
   shown: string | null;
   /** What the card was built from, so a token whose result changed underneath it is redrawn. */
   signature: string | null;
+  motion: Motion;
+  /** Where the card was last placed; `null` while it is hidden or has just been rebuilt. */
+  placed: Point | null;
+  corner: Corner;
+  /** Bumped per close so a collapse that a reopen overtook never hides the new card. */
+  closing: number;
   detachLens(): void;
 }
 
@@ -124,14 +134,23 @@ function mount(handlers: PaneHandlers): Pane {
     event.stopPropagation();
     if (pane?.card.hasAttribute(LOCKED_ATTR)) pane.handlers.unlock();
   });
+  const glass = document.createElement("div");
+  glass.className = "card-glass";
+  glass.setAttribute(GLASS_ATTR, "");
+  card.appendChild(glass);
   root.appendChild(card);
   const created: Pane = {
     host,
     card,
+    glass,
     handlers,
     shown: null,
     signature: null,
-    detachLens: attachLens(root, card),
+    motion: createMotion(card, glass),
+    placed: null,
+    corner: "bottom-left",
+    closing: 0,
+    detachLens: attachLens(root, glass),
   };
   pane = created;
   return created;
@@ -180,17 +199,31 @@ export function renderPane(count: number, handlers: PaneHandlers): void {
  * Puts the card beside `at`: above and to the right of it, flipping to the left or below when
  * that would leave the viewport, so the cursor never sits on the card it is dragging along.
  * Above rather than below because the browser draws a page's own `title` tooltip below and to
- * the right of a resting cursor, and it would otherwise cover the card.
+ * the right of a resting cursor, and it would otherwise cover the card. The card itself lags the
+ * new spot on a spring: see {@link Motion.shift}.
  */
 export function moveCard(at: Point): void {
   if (pane === null || pane.shown === null) return;
   const { offsetWidth: width, offsetHeight: height } = pane.card;
   let left = at.x + CURSOR_GAP_PX;
-  if (left + width > window.innerWidth - EDGE_PX) left = at.x - CURSOR_GAP_PX - width;
+  let horizontal = "left";
+  if (left + width > window.innerWidth - EDGE_PX) {
+    left = at.x - CURSOR_GAP_PX - width;
+    horizontal = "right";
+  }
   let top = at.y - CURSOR_GAP_PX - height;
-  if (top < EDGE_PX) top = at.y + CURSOR_GAP_PX;
-  pane.card.style.left = `${Math.max(EDGE_PX, left)}px`;
-  pane.card.style.top = `${Math.max(EDGE_PX, top)}px`;
+  let vertical = "bottom";
+  if (top < EDGE_PX) {
+    top = at.y + CURSOR_GAP_PX;
+    vertical = "top";
+  }
+  left = Math.max(EDGE_PX, left);
+  top = Math.max(EDGE_PX, top);
+  pane.corner = `${vertical}-${horizontal}` as Corner;
+  if (pane.placed !== null) pane.motion.shift(left - pane.placed.x, top - pane.placed.y);
+  pane.placed = { x: left, y: top };
+  pane.card.style.left = `${left}px`;
+  pane.card.style.top = `${top}px`;
 }
 
 /**
@@ -202,10 +235,15 @@ export function showPreview(preview: Preview | null, at?: Point): void {
   if (pane === null) return;
   if (preview === null) {
     if (pane.shown === null) return;
+    const closing = ++pane.closing;
     pane.shown = null;
     pane.signature = null;
-    pane.card.hidden = true;
-    pane.card.replaceChildren();
+    pane.motion.close(() => {
+      if (pane === null || pane.closing !== closing) return;
+      pane.card.hidden = true;
+      pane.glass.replaceChildren();
+      pane.placed = null;
+    });
     return;
   }
   const signature = JSON.stringify([
@@ -214,7 +252,9 @@ export function showPreview(preview: Preview | null, at?: Point): void {
     preview.reason,
     preview.fingerprint,
   ]);
+  const fresh = pane.card.hidden || pane.closing !== 0;
   if (pane.signature !== signature) {
+    pane.closing = 0;
     pane.shown = preview.key;
     pane.signature = signature;
     const width = Math.min(
@@ -224,12 +264,17 @@ export function showPreview(preview: Preview | null, at?: Point): void {
     );
     pane.card.style.maxWidth = `${width}px`;
     pane.card.toggleAttribute(LOCKED_ATTR, preview.reason === "locked");
-    pane.card.replaceChildren(
+    pane.glass.replaceChildren(
       preview.text === null ? note(preview) : plaintext(preview, preview.text),
     );
     pane.card.hidden = false;
   }
+  if (fresh) {
+    pane.motion.reset();
+    pane.placed = null;
+  }
   if (at !== undefined) moveCard(at);
+  if (fresh) pane.motion.open(pane.corner);
 }
 
 /** The key of the token the card is showing, if any. */

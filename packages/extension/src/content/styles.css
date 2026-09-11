@@ -46,22 +46,26 @@
   position: fixed;
   z-index: 2147483647;
   box-sizing: border-box;
-  display: flex;
   width: fit-content;
   max-width: calc(100vw - 32px);
+  color: var(--entz-fg);
+  font: 13px / 1.45 var(--entz-font);
+  pointer-events: auto;
+}
+
+.card-glass {
+  position: relative;
+  display: flex;
   padding: 11px 15px;
   border-radius: 18px;
   background: var(--entz-glass);
   backdrop-filter: blur(4px) saturate(180%);
   -webkit-backdrop-filter: blur(4px) saturate(180%);
   box-shadow: var(--entz-shadow);
-  color: var(--entz-fg);
-  font: 13px / 1.45 var(--entz-font);
   overflow: hidden;
-  pointer-events: auto;
 }
 
-.card::before {
+.card-glass::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -89,7 +93,7 @@
   box-sizing: border-box;
 }
 
-.card > * {
+.card-glass > * {
   position: relative;
 }
 
