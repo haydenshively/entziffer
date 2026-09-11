@@ -210,7 +210,7 @@ teammate) should show `ENTZ1:…`.
 If step 3 shows no plaintext in Chrome:
 
 - Check the fingerprint from `inspect` against the one in the extension popup — a token
-  encrypted to the wrong recipient is masked in grey and has no pane entry to read.
+  encrypted to the wrong recipient gets a grey tag and has no pane entry to read.
 - Check that entziffer is unlocked: a pill reading *Locked* means the session is locked, not
   that the token is wrong.
 - Check that the origin is enabled: open the popup on that tab, which says whether entziffer

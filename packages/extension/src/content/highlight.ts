@@ -1,29 +1,21 @@
-export const MASK_LAYER = "entz-mask";
-export const FOCUS_LAYER = "entz-focus";
-export const DIM_LAYER = "entz-dim";
-export const FOREIGN_LAYER = "entz-foreign";
+export const TAG_LAYER = "entz-tag";
+export const ACTIVE_LAYER = "entz-tag-active";
+export const DIM_LAYER = "entz-tag-dim";
+export const FOREIGN_LAYER = "entz-tag-foreign";
 
 const ACCENT_PROPERTY = "--entz-highlight-accent";
-/** Inside `::highlight()`, `currentColor` is the highlight's own (transparent) colour, so grey is explicit. */
+const ON_ACCENT_PROPERTY = "--entz-highlight-on-accent";
+/** Inside `::highlight()`, `currentColor` is the highlight's own colour, so grey is explicit. */
 const FOREIGN_PROPERTY = "--entz-highlight-foreign";
-const ACCENT_LIGHT = "#3b5bdb";
-const ACCENT_DARK = "#8ea2ff";
-const FOREIGN_LIGHT = "rgba(20, 24, 40, 0.22)";
-const FOREIGN_DARK = "rgba(255, 255, 255, 0.24)";
 
-const ROOT_RULES = `:root { ${ACCENT_PROPERTY}: ${ACCENT_LIGHT}; ${FOREIGN_PROPERTY}: ${FOREIGN_LIGHT}; }
-@media (prefers-color-scheme: dark) { :root { ${ACCENT_PROPERTY}: ${ACCENT_DARK}; ${FOREIGN_PROPERTY}: ${FOREIGN_DARK}; } }`;
+const ROOT_RULES = `:root {
+  ${ACCENT_PROPERTY}: #3b5bdb; ${ON_ACCENT_PROPERTY}: #fff; ${FOREIGN_PROPERTY}: rgba(20, 24, 40, 0.55);
+}
+@media (prefers-color-scheme: dark) { :root {
+  ${ACCENT_PROPERTY}: #8ea2ff; ${ON_ACCENT_PROPERTY}: #12141a; ${FOREIGN_PROPERTY}: rgba(255, 255, 255, 0.6);
+} }`;
 
 const ACCENT = `var(${ACCENT_PROPERTY})`;
-
-/**
- * Hides the ciphertext's glyphs and fills exactly the space they occupy, like a censor's bar, so
- * the token reads as redacted without any change to the text, its layout, or what copy yields.
- * Overlapping highlights each paint their own fill, so a range belongs to one layer at a time.
- */
-const mask = (fill: string): string =>
-  `color: transparent; -webkit-text-fill-color: transparent; background-color: ${fill};`;
-
 const tint = (percent: number): string => `color-mix(in srgb, ${ACCENT} ${percent}%, transparent)`;
 
 export interface HighlightLayer {
@@ -48,9 +40,9 @@ function styleSheet(): CSSStyleSheet {
 /**
  * Styles arbitrary text ranges without touching the DOM, through a registered CSS Custom Highlight
  * (https://drafts.csswg.org/css-highlight-api-1/). `css` is the declaration body of the layer's
- * `::highlight()` rule and may read {@link ACCENT_PROPERTY}, which follows the page's colour
- * scheme. Ranges are live, so a layer follows the page's own edits; engines without the API get a
- * layer that does nothing. Calling this twice with the same `name` returns the same layer.
+ * `::highlight()` rule. Ranges are live, so a layer follows the page's own edits; engines without
+ * the API get a layer that does nothing. Calling this twice with the same `name` returns the same
+ * layer. Overlapping highlights each paint their own fill, so a range belongs to one layer at a time.
  */
 export function highlightLayer(name: string, css: string): HighlightLayer {
   const existing = layers.get(name);
@@ -82,21 +74,32 @@ export function highlightLayer(name: string, css: string): HighlightLayer {
   return layer;
 }
 
-/** Every token the pane can show, while nothing is being pointed at. */
-export const maskLayer = (): HighlightLayer => highlightLayer(MASK_LAYER, mask(tint(45)));
+/**
+ * The `ENTZ1:` marker at the head of every token, styled as a small tag; the ciphertext after it
+ * is left exactly as the page renders it.
+ */
+export const tagLayer = (): HighlightLayer =>
+  highlightLayer(TAG_LAYER, `background-color: ${tint(16)}; color: ${ACCENT};`);
 
 /** The one token the pane and page agree on. */
-export const focusLayer = (): HighlightLayer =>
+export const activeLayer = (): HighlightLayer =>
   highlightLayer(
-    FOCUS_LAYER,
-    `${mask(tint(80))}
-     text-decoration: underline solid ${ACCENT}; text-decoration-thickness: 2px;
-     text-underline-offset: 3px;`,
+    ACTIVE_LAYER,
+    `background-color: ${ACCENT}; color: var(${ON_ACCENT_PROPERTY});
+     -webkit-text-fill-color: var(${ON_ACCENT_PROPERTY});`,
   );
 
-/** Every other token while {@link focusLayer} holds one. */
-export const dimLayer = (): HighlightLayer => highlightLayer(DIM_LAYER, mask(tint(18)));
+/** Every other token while {@link activeLayer} holds one. */
+export const dimLayer = (): HighlightLayer =>
+  highlightLayer(
+    DIM_LAYER,
+    `background-color: ${tint(8)}; color: ${tint(45)}; -webkit-text-fill-color: ${tint(45)};`,
+  );
 
 /** Tokens this key cannot open: encrypted to someone else, or malformed. */
 export const foreignLayer = (): HighlightLayer =>
-  highlightLayer(FOREIGN_LAYER, mask(`var(${FOREIGN_PROPERTY})`));
+  highlightLayer(
+    FOREIGN_LAYER,
+    `background-color: color-mix(in srgb, var(${FOREIGN_PROPERTY}) 25%, transparent);
+     color: var(${FOREIGN_PROPERTY}); -webkit-text-fill-color: var(${FOREIGN_PROPERTY});`,
+  );

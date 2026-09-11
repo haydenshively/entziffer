@@ -3,12 +3,15 @@ import {
   encrypt,
   formatFingerprint,
   importPublicKey,
+  MARKER,
   parseEnvelope,
 } from "@entziffer/core";
 import { type Broadcast, send } from "../shared/messages.js";
-import { dimLayer, focusLayer, foreignLayer, maskLayer } from "./highlight.js";
+import { allowingWrites, installGuard } from "./guard.js";
+import { activeLayer, dimLayer, foreignLayer, tagLayer } from "./highlight.js";
 import { replaceInEditor } from "./insert.js";
 import {
+  focusEntry,
   isPaneEvent,
   type PaneEntry,
   type PaneHandlers,
@@ -29,11 +32,12 @@ type CacheEntry = { ok: true; text: string } | { ok: false; code: string };
 
 const LOCKED: CacheEntry = { ok: false, code: "LOCKED" };
 
-/** One token the pane speaks for: the live range is what the highlight layers style. */
+/** One token the pane speaks for: `range` is the whole token, `tag` the marker the layers style. */
 interface Known {
   key: string;
   loc: TokenLocation;
   range: Range;
+  tag: Range;
   result: CacheEntry;
 }
 
@@ -97,10 +101,10 @@ function isStale(k: Known): boolean {
   }
 }
 
-const layers = () => [maskLayer(), focusLayer(), dimLayer(), foreignLayer()];
+const layers = () => [tagLayer(), activeLayer(), dimLayer(), foreignLayer()];
 
 function forget(k: Known): void {
-  for (const layer of layers()) layer.delete(k.range);
+  for (const layer of layers()) layer.delete(k.tag);
 }
 
 function clearHighlights(): void {
@@ -108,16 +112,27 @@ function clearHighlights(): void {
 }
 
 /**
- * Every known token is masked in the page, in exactly one layer: the plain mask, or the foreign
- * mask for a token this key cannot open. While `active` names an entry, it takes the focus layer
- * and every other token dims.
+ * Every known token's marker is tagged, in exactly one layer: the plain tag, or the foreign tag
+ * for a token this key cannot open. While `active` names an entry, its tag lights up and every
+ * other one dims.
  */
 function paint(active: string | null): void {
   clearHighlights();
   for (const k of known) {
-    if (active === null) (k.result.ok || locked ? maskLayer() : foreignLayer()).add(k.range);
-    else (k.key === active ? focusLayer() : dimLayer()).add(k.range);
+    if (active === null) (k.result.ok || locked ? tagLayer() : foreignLayer()).add(k.tag);
+    else (k.key === active ? activeLayer() : dimLayer()).add(k.tag);
   }
+}
+
+/** The `ENTZ1:` marker at the head of a token, or the whole token when the marker is split across nodes. */
+function tagOf(loc: TokenLocation, range: Range): Range {
+  const at = loc.token.indexOf(MARKER);
+  const end = loc.startOffset + at + MARKER.length;
+  if (at < 0 || end > loc.startNode.length) return range;
+  const tag = range.cloneRange();
+  tag.setStart(loc.startNode, loc.startOffset + at);
+  tag.setEnd(loc.startNode, end);
+  return tag;
 }
 
 /**
@@ -146,13 +161,15 @@ async function reencrypt(key: string, value: string): Promise<void> {
   if (k === undefined || isStale(k)) return;
   cacheSet(token, { ok: true, text: value });
   pendingRewrite.set(token, key);
-  if (!preservingPaneFocus(() => replaceInEditor(k.loc, token))) pendingRewrite.delete(token);
+  const written = preservingPaneFocus(() => allowingWrites(() => replaceInEditor(k.loc, token)));
+  if (!written) pendingRewrite.delete(token);
 }
 
 const handlers: PaneHandlers = {
   insert(key, value) {
     const k = known.find((entry) => entry.key === key);
-    if (k === undefined || isStale(k) || !replaceInEditor(k.loc, value)) return false;
+    if (k === undefined || isStale(k)) return false;
+    if (!allowingWrites(() => replaceInEditor(k.loc, value))) return false;
     forget(k);
     known = known.filter((entry) => entry !== k);
     refreshPane();
@@ -227,6 +244,13 @@ function onPointerLeave(): void {
   if (pointer?.source === "page") setPointer(null);
 }
 
+/** A click on a token's tag opens its entry in the pane, where the editing happens. */
+function onClick(event: MouseEvent): void {
+  if (isPaneEvent(event)) return;
+  const key = hitTest(event.clientX, event.clientY);
+  if (key !== null) focusEntry(key);
+}
+
 function fingerprintOf(token: string): string | null {
   try {
     return formatFingerprint(parseEnvelope(token).fpr);
@@ -263,7 +287,8 @@ function remember(loc: TokenLocation, result: CacheEntry): void {
   }
   const reused = pendingRewrite.get(loc.token);
   pendingRewrite.delete(loc.token);
-  known.push({ key: reused ?? `entz-${nextKey++}`, loc, range: rangeOf(loc), result });
+  const range = rangeOf(loc);
+  known.push({ key: reused ?? `entz-${nextKey++}`, loc, range, tag: tagOf(loc, range), result });
 }
 
 async function processPendingRoots(): Promise<void> {
@@ -379,4 +404,9 @@ chrome.runtime.onMessage.addListener((message: Broadcast) => {
 
 document.addEventListener("mousemove", onPointerMove, { passive: true });
 document.addEventListener("mouseleave", onPointerLeave);
+document.addEventListener("click", onClick);
+installGuard({
+  tokens: () => known.filter((k) => k.loc.editable),
+  onBlocked: (key) => void focusEntry(key),
+});
 void start();

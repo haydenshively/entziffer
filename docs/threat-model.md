@@ -98,24 +98,35 @@ Failure modes: an authenticator without PRF support answers `PRF_UNSUPPORTED` an
 stored; dismissing the prompt is `PASSKEY_CANCELLED` and leaves the state unchanged; a passkey
 that derives a different key answers `KEY_MISMATCH` rather than replacing your identity.
 
-## Rendering: masked in the page, plaintext in the pane
+## Rendering: tagged in the page, edited in the pane
 
 There is one rendering mode, and it never touches the page's text. The only node the extension
 adds to a page is the shadow host for its own pane.
 
-- **Masked in the page.** Every known token — a list row, a board card, a notification, a
+- **Tagged in the page.** Every known token — a list row, a board card, a notification, a
   read-only description, a token inside an editor — is marked with a CSS Custom Highlight,
   which styles a live `Range` without mutating the DOM. That is what makes it safe inside an
-  editor: nothing round-trips back to the server. The highlight makes the ciphertext glyphs
-  transparent and fills exactly the space they occupy with a solid tint, like a censor's bar, so the token reads
-  as redacted, the layout does not shift, and selecting or copying still yields the ciphertext.
-  A token encrypted to somebody else gets a grey version of the same mask. Hovering a pane
-  entry focuses its token in the page — a stronger fill with an underline — and dims the others; hovering a
-  masked token marks its pane entry. Nothing animates.
+  editor: nothing round-trips back to the server. The ciphertext itself is left exactly as the
+  page rendered it, fully readable as `ENTZ1:…`; the highlight covers only the `ENTZ1:` marker at
+  the head of the token and draws it as a small tag — a light accent fill with accent text — so
+  the token is easy to pick out, the layout does not shift, and selecting or copying still yields
+  the ciphertext. A token encrypted to somebody else gets a grey tag. While a pane entry is
+  hovered or being edited, that token's tag lights up — solid accent, inverted text — and every
+  other tag dims; hovering a token in the page marks its pane entry, and clicking one opens its
+  pane entry and puts the caret there. Nothing animates.
 - **The pane.** Plaintext appears in exactly one place: a floating pane in its own shadow root,
   listing every token on the page in document order. Inert tokens are shown read-only with a
   **Copy** button. A token inside an editor — `[contenteditable]`, `.ProseMirror`,
   `[role="textbox"]`, `input`, `textarea` — is editable in the pane instead.
+- **Editing in the page is refused.** An edit landing on ciphertext would either corrupt the
+  token past decryption or, if you typed plaintext beside it, leak that plaintext to the host
+  application on the next save — so edits are routed to the pane rather than allowed in place.
+  In the page's own editors, typing, Backspace/Delete/Enter, paste, cut, and drop whose target
+  touches a token (its edges included) are cancelled before the browser or the editor acts, and
+  keyboard focus moves to that token's text box in the pane, where the edit happens and is
+  re-encrypted back into the field. Prose around the token stays editable in place, and copying
+  and selecting the ciphertext are untouched; the extension's own two writes — re-encryption and
+  **Insert plaintext** — bypass the guard.
 
 Each editable pane entry is a text box: what you type there is re-encrypted to your own key
 (debounced) and written back into the field as ciphertext, so the plaintext never enters the

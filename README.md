@@ -31,16 +31,18 @@ working. The wire format is specified byte for byte in [docs/format.md](docs/for
 implements it if you would rather not trust npm.
 
 **Reading and editing an encrypted field.** entziffer never rewrites the page's text. Every
-token stays exactly as the page rendered it and is masked with a CSS Custom Highlight — the
-ciphertext goes transparent and the space it occupies is filled with a solid tint, like a censor's bar, so it
-reads as redacted, nothing shifts, and selecting or copying still yields the ciphertext. The
+token stays exactly as the page rendered it and stays fully readable as `ENTZ1:…` — a CSS Custom
+Highlight styles only the `ENTZ1:` marker at the head of each token, as a small tag, so tokens
+are easy to pick out, nothing shifts, and selecting or copying still yields the ciphertext. The
 plaintext appears in a floating pane beside the page — think a Markdown preview next to the
-source — which lists every token on the page, editable and inert alike. Inert tokens are
-read-only with a *Copy* button; a token inside an editor is editable in the pane, and what you
-type there is re-encrypted to your own key and written back into the field as ciphertext, so
-the plaintext never enters the editor unless you click *Insert plaintext*, which replaces the
-ciphertext in the field for real — saving it then stores the plaintext in Linear, which is how
-you declassify or edit an issue.
+source — which lists every token on the page, editable and inert alike, and which clicking a
+token in the page opens at its entry. Inert tokens are read-only with a *Copy* button; a token
+inside an editor is editable in the pane only — editing it in the page itself is refused, and
+your keystrokes are sent to the pane's text box — and what you type there is re-encrypted to
+your own key and written back into the field as ciphertext, so the plaintext never enters the
+editor unless you click *Insert plaintext*, which replaces the ciphertext in the field for
+real — saving it then stores the plaintext in Linear, which is how you declassify or edit an
+issue.
 
 ## Quick start (5 minutes)
 

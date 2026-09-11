@@ -104,10 +104,15 @@ const entryText = (page: Page): Promise<string[]> =>
     .locator("textarea")
     .evaluateAll((els) => els.map((el) => (el as HTMLTextAreaElement).value));
 
-/** The ranges a highlight layer currently paints, as the text they cover. */
+/** The tokens whose `ENTZ1:` marker a highlight layer currently paints, in layer order. */
 const highlighted = (page: Page, layer: string): Promise<string[]> =>
   page.evaluate(
-    (name) => [...(CSS.highlights.get(name) ?? [])].map((r) => (r as Range).toString()),
+    (name) =>
+      [...(CSS.highlights.get(name) ?? [])].map((r) => {
+        const range = r as Range;
+        const text = (range.startContainer as Text).data.slice(range.startOffset);
+        return /^ENTZ1:[A-Za-z0-9_-]+/.exec(text)?.[0] ?? range.toString();
+      }),
     layer,
   );
 
@@ -191,34 +196,35 @@ test("lists every token in the pane, in document order, editable ones as editabl
   await page.close();
 });
 
-test("masks every token with a highlight that hides its glyphs behind a solid fill", async () => {
+test("tags every token's marker with a highlight and leaves the ciphertext as rendered", async () => {
   const page = await openFixture();
   await expect(entries(page)).toHaveCount(6);
 
   // The 157-character token in the 220px editor wraps; the range spans all of it.
-  expect(await highlighted(page, "entz-mask")).toEqual([
+  expect(await highlighted(page, "entz-tag")).toEqual([
     token("ascii-title"),
     token("with-newline"),
     token("ascii-title"),
     token("title-60"),
     token("ascii-title"),
   ]);
-  expect(await highlighted(page, "entz-foreign")).toEqual([token("foreign")]);
+  expect(await highlighted(page, "entz-tag-foreign")).toEqual([token("foreign")]);
   expect(await textOf(page, "#editable-multiline")).toBe(token("title-60"));
-  // The element's own colour is untouched: only the highlight pseudo-element hides the text.
-  expect(
-    await page.locator("#editable-multiline").evaluate((el) => getComputedStyle(el).color),
-  ).not.toBe("rgba(0, 0, 0, 0)");
   expect(
     await page.evaluate(() => {
       for (const sheet of document.adoptedStyleSheets) {
         for (const rule of sheet.cssRules) {
-          if (rule.cssText.startsWith("::highlight(entz-mask)")) return rule.cssText;
+          if (rule.cssText.startsWith("::highlight(entz-tag)")) return rule.cssText;
         }
       }
       return null;
     }),
-  ).toMatch(/color: transparent;.*background-color: color-mix\(/s);
+  ).toMatch(/background-color: color-mix\(/);
+  expect(
+    await page.evaluate(() =>
+      [...(CSS.highlights.get("entz-tag") ?? [])].map((r) => (r as Range).toString()),
+    ),
+  ).toEqual(Array(5).fill("ENTZ1:"));
   await page.close();
 });
 
@@ -227,20 +233,20 @@ test("hovering an entry focuses its token and dims the others", async () => {
   await expect(entries(page)).toHaveCount(6);
 
   await entries(page).nth(3).hover();
-  await expect.poll(() => highlighted(page, "entz-focus")).toEqual([token("title-60")]);
-  expect(await highlighted(page, "entz-dim")).toEqual([
+  await expect.poll(() => highlighted(page, "entz-tag-active")).toEqual([token("title-60")]);
+  expect(await highlighted(page, "entz-tag-dim")).toEqual([
     token("ascii-title"),
     token("with-newline"),
     token("ascii-title"),
     token("ascii-title"),
     token("foreign"),
   ]);
-  expect(await highlighted(page, "entz-mask")).toEqual([]);
+  expect(await highlighted(page, "entz-tag")).toEqual([]);
 
   await page.locator("h1").hover();
-  await expect.poll(() => highlighted(page, "entz-focus")).toEqual([]);
-  expect(await highlighted(page, "entz-dim")).toEqual([]);
-  expect(await highlighted(page, "entz-mask")).toHaveLength(5);
+  await expect.poll(() => highlighted(page, "entz-tag-active")).toEqual([]);
+  expect(await highlighted(page, "entz-tag-dim")).toEqual([]);
+  expect(await highlighted(page, "entz-tag")).toHaveLength(5);
   await page.close();
 });
 
@@ -250,7 +256,7 @@ test("hovering a token in the page marks and focuses its pane entry", async () =
   await page.locator("#pm-editor").scrollIntoViewIfNeeded();
 
   const point = await page.evaluate(() => {
-    for (const entry of CSS.highlights.get("entz-mask") ?? []) {
+    for (const entry of CSS.highlights.get("entz-tag") ?? []) {
       const range = entry as Range;
       if (range.startContainer.parentElement?.closest("#pm-editor") == null) continue;
       const rect = range.getClientRects()[0];
@@ -265,11 +271,11 @@ test("hovering a token in the page marks and focuses its pane entry", async () =
   await expect(entries(page).nth(4)).toHaveAttribute("data-entz-active", "");
   await expect(entries(page).nth(2)).not.toHaveAttribute("data-entz-active", "");
   await expect(entries(page).nth(3)).not.toHaveAttribute("data-entz-active", "");
-  expect(await highlighted(page, "entz-focus")).toEqual([token("ascii-title")]);
+  expect(await highlighted(page, "entz-tag-active")).toEqual([token("ascii-title")]);
 
   await page.mouse.move(4, 4);
   await expect(entries(page).nth(4)).not.toHaveAttribute("data-entz-active", "");
-  await expect.poll(() => highlighted(page, "entz-focus")).toEqual([]);
+  await expect.poll(() => highlighted(page, "entz-tag-active")).toEqual([]);
   await page.close();
 });
 
@@ -328,6 +334,93 @@ test.describe("insert plaintext", () => {
       ),
     ).toBe(DRAFT(plaintext("ascii-title")));
     await expect(entries(page)).toHaveCount(5);
+    await page.close();
+  });
+});
+
+test.describe("editing in the page is refused", () => {
+  const DRAFT = (body: string): string => `Draft: ${body} (still editing)`;
+
+  /** Puts the caret `offset` characters into the token inside `selector`'s first text node. */
+  async function caretInToken(page: Page, selector: string, offset: number): Promise<void> {
+    await page.locator(selector).click();
+    await page.evaluate(
+      ([sel, at]) => {
+        const el = document.querySelector(sel as string) as HTMLElement;
+        const text = [...el.childNodes].find((n) => n.nodeType === Node.TEXT_NODE) as Text;
+        const start = text.data.indexOf("ENTZ1:") + (at as number);
+        document.getSelection()?.setBaseAndExtent(text, start, text, start);
+      },
+      [selector, offset],
+    );
+  }
+
+  const paneValue = (page: Page): Promise<string | null> =>
+    page.evaluate(() => {
+      for (const host of document.querySelectorAll("[data-entz-host]")) {
+        const active = host.shadowRoot?.activeElement;
+        if (active instanceof HTMLTextAreaElement) return active.value;
+      }
+      return null;
+    });
+
+  test("typing into a token leaves it intact and moves focus to its pane entry", async () => {
+    const page = await openFixture();
+    await expect(entries(page)).toHaveCount(6);
+    await caretInToken(page, "#editable-para", 20);
+    await page.keyboard.type("x");
+    expect(await textOf(page, "#editable-para")).toBe(DRAFT(token("ascii-title")));
+    expect(await paneValue(page)).toBe(plaintext("ascii-title"));
+    await page.close();
+  });
+
+  test("Backspace at a token's end and typing at its edges are refused too", async () => {
+    const page = await openFixture();
+    await expect(entries(page)).toHaveCount(6);
+    const before = DRAFT(token("ascii-title"));
+
+    // Each refused key hands focus to the pane, so the caret goes back before the next one.
+    await caretInToken(page, "#editable-para", token("ascii-title").length);
+    await page.keyboard.press("Backspace");
+    expect(await textOf(page, "#editable-para")).toBe(before);
+    await caretInToken(page, "#editable-para", token("ascii-title").length);
+    await page.keyboard.type("z");
+    expect(await textOf(page, "#editable-para")).toBe(before);
+    await caretInToken(page, "#editable-para", 0);
+    await page.keyboard.press("Delete");
+    expect(await textOf(page, "#editable-para")).toBe(before);
+    expect(await paneValue(page)).toBe(plaintext("ascii-title"));
+
+    // Prose around the token is still the page's to edit.
+    await page.evaluate(() => {
+      const el = document.getElementById("editable-para") as HTMLElement;
+      const text = el.firstChild as Text;
+      document.getSelection()?.setBaseAndExtent(text, 0, text, 0);
+    });
+    await page.keyboard.type("Q");
+    expect(await textOf(page, "#editable-para")).toBe(`Q${before}`);
+    await page.close();
+  });
+
+  test("a real ProseMirror editor refuses the edit through its own keymap as well", async () => {
+    const page = await openFixture();
+    await expect(entries(page)).toHaveCount(6);
+    const pmText = (): Promise<string> =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __pmView: { state: { doc: { textContent: string } } } }).__pmView
+            .state.doc.textContent,
+      );
+    const before = DRAFT(token("ascii-title"));
+    expect(await pmText()).toBe(before);
+
+    for (const key of ["x", "Backspace", "Enter"]) {
+      await caretInToken(page, "#pm-editor p", 30);
+      await page.keyboard.press(key);
+      expect(await pmText()).toBe(before);
+    }
+    expect(await textOf(page, "#pm-editor")).toBe(before);
+    expect(await paneValue(page)).toBe(plaintext("ascii-title"));
     await page.close();
   });
 });
@@ -538,7 +631,7 @@ test.describe("the pane window", () => {
 test("masks a token encrypted to someone else in grey and names its recipient in the pane", async () => {
   const page = await openFixture();
   await expect(entries(page)).toHaveCount(6);
-  expect(await highlighted(page, "entz-foreign")).toEqual([token("foreign")]);
+  expect(await highlighted(page, "entz-tag-foreign")).toEqual([token("foreign")]);
   expect(await textOf(page, "#foreign")).toBe(`Someone else's: ${token("foreign")}`);
   const row = entries(page).nth(5);
   await expect(row).toContainText(`Encrypted for someone else · ${foreign.fingerprint}`);
@@ -556,7 +649,7 @@ test("a framework rewriting its own text node swaps the entry rather than adding
   }, token("title-60"));
   await expect.poll(() => entryText(page)).toEqual([plaintext("title-60"), ...ALL_TEXT.slice(1)]);
   await expect(entries(page)).toHaveCount(6);
-  await expect.poll(() => highlighted(page, "entz-mask")).toContain(token("title-60"));
+  await expect.poll(() => highlighted(page, "entz-tag")).toContain(token("title-60"));
   expect(await textOf(page, "#para")).toBe(`Heads up: ${token("title-60")} — please review today.`);
   await page.close();
 });
@@ -638,8 +731,8 @@ test.describe("session lock", () => {
     await expect(page.locator("[data-entz-unlock]")).toHaveText("Unlock");
     await expect(entries(page)).toHaveCount(0);
     await expect(page.locator("[data-entz-count]")).toHaveText("6 encrypted");
-    await expect.poll(() => highlighted(page, "entz-mask")).toHaveLength(6);
-    expect(await highlighted(page, "entz-foreign")).toEqual([]);
+    await expect.poll(() => highlighted(page, "entz-tag")).toHaveLength(6);
+    expect(await highlighted(page, "entz-tag-foreign")).toEqual([]);
 
     const opened = context.waitForEvent("page");
     await page.click("[data-entz-unlock]");

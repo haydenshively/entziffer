@@ -611,6 +611,21 @@ export function setActive(key: string | null, scrollIntoView: boolean): void {
   }
 }
 
+/**
+ * Hands keyboard focus to an entry's text box, opening the pane if it is collapsed, with the caret
+ * at the end. This is where an edit the page's editor refused ends up.
+ */
+export function focusEntry(key: string): boolean {
+  const row = pane?.rows.get(key);
+  if (pane === null || row === undefined || row.textarea === null) return false;
+  setCollapsed(false);
+  const field = row.textarea;
+  field.focus({ preventScroll: true });
+  field.setSelectionRange(field.value.length, field.value.length);
+  row.element.scrollIntoView?.({ block: "nearest" });
+  return true;
+}
+
 /** True when `event` originated inside the pane, whose shadow boundary retargets it to the host. */
 export function isPaneEvent(event: Event): boolean {
   return pane !== null && event.composedPath().includes(pane.host);
