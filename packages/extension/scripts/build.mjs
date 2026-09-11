@@ -102,7 +102,7 @@ function contentConfig(outDir, e2e) {
   };
 }
 
-/** Proves the insert path against a real ProseMirror instance; E2E builds only. */
+/** The real ProseMirror instance the E2E refuses edits against; E2E builds only. */
 function fixtureEditorConfig(outDir) {
   const config = shared(outDir, true);
   return {

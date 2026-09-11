@@ -4,13 +4,14 @@ import { cmdEncryptIssue } from "./commands/encrypt-issue.js";
 import { cmdInspect } from "./commands/inspect.js";
 import { cmdKeys } from "./commands/keys.js";
 import { EXIT_OK, toCliError, usageError } from "./errors.js";
-import { json, out } from "./io.js";
+import { json, out, setQuiet } from "./io.js";
 import { USAGE } from "./usage.js";
 
 export const VERSION: string = pkg.version;
 
 export async function run(argv: string[]): Promise<number> {
   const wantsJson = argv.includes("--json");
+  setQuiet(argv.includes("--quiet"));
   try {
     await dispatch(argv);
     return EXIT_OK;

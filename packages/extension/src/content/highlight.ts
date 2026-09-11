@@ -10,9 +10,10 @@ const ACCENT_PROPERTY = "--entz-highlight-accent";
 const FOREIGN_PROPERTY = "--entz-highlight-foreign";
 /** How much of the text's own colour the ciphertext keeps while it is not under the cursor. */
 const DIM_PERCENT = 65;
-/** Distinct text colours that get their own dim layer before new ones fall back to the first. */
+/** Distinct text colours that get their own dim layer; past this a token is left undimmed. */
 const MAX_DIM_LAYERS = 32;
 
+/** The accent pair lives in `shared/glass.css` (`--accent`); page CSS cannot be imported here. */
 const ROOT_RULES = `:root { ${ACCENT_PROPERTY}: #3b5bdb; ${FOREIGN_PROPERTY}: rgba(20, 24, 40, 0.55); }
 @media (prefers-color-scheme: dark) { :root {
   ${ACCENT_PROPERTY}: #8ea2ff; ${FOREIGN_PROPERTY}: rgba(255, 255, 255, 0.6);
@@ -97,15 +98,19 @@ export const foreignLayer = (): HighlightLayer =>
 
 const dimLayers = new Map<string, HighlightLayer>();
 
+/** A layer for a colour past {@link MAX_DIM_LAYERS}: fading in the wrong colour would be worse. */
+const NO_DIM: HighlightLayer = { add() {}, delete() {}, clear() {} };
+
 /**
  * The ciphertext body of a token not under the cursor, faded to {@link DIM_PERCENT} of `color`,
  * the computed colour of the text it sits in. One layer per distinct colour, since a highlight
- * cannot see the colour of the text it covers; the hovered token simply leaves its layer.
+ * cannot see the colour of the text it covers; the hovered token simply leaves its layer. Past
+ * {@link MAX_DIM_LAYERS} colours the body is left undimmed rather than faded in another's colour.
  */
 export function dimLayer(color: string): HighlightLayer {
   const existing = dimLayers.get(color);
   if (existing !== undefined) return existing;
-  if (dimLayers.size >= MAX_DIM_LAYERS) return dimLayers.values().next().value as HighlightLayer;
+  if (dimLayers.size >= MAX_DIM_LAYERS) return NO_DIM;
   const faded = `color-mix(in srgb, ${color} ${DIM_PERCENT}%, transparent)`;
   const layer = highlightLayer(
     `${DIM_LAYER}-${dimLayers.size}`,

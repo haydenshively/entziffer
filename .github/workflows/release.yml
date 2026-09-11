@@ -8,9 +8,14 @@ permissions:
   contents: read
 
 jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
       id-token: write
     steps:
@@ -22,22 +27,19 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
       - run: pnpm -r build
-      - run: pnpm test
-      # A release that has not been driven through a real Chrome is not a release.
-      - run: npx playwright install --with-deps chromium
-      - run: pnpm --filter @entziffer/extension test:e2e
 
-      - run: pnpm --filter @entziffer/extension zip
+      - uses: actions/download-artifact@v4
+        with:
+          name: entziffer-extension
+          path: dist-release
       - id: zip
         run: |
-          path="$(ls packages/extension/entziffer-extension-*.zip | head -n1)"
+          path="$(ls dist-release/entziffer-extension-*.zip | head -n1)"
           test -n "$path"
           echo "path=$path" >> "$GITHUB_OUTPUT"
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: ${{ steps.zip.outputs.path }}
           generate_release_notes: true

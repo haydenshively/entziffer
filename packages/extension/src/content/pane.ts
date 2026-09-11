@@ -1,4 +1,4 @@
-import { attachLens } from "./lens.js";
+import { attachLens, el } from "./lens.js";
 import { type Corner, createMotion, type Motion } from "./motion.js";
 import { createShadowHost } from "./shadow.js";
 
@@ -11,18 +11,15 @@ export const LOCKED_ATTR = "data-entz-locked";
 
 const EDGE_PX = 4;
 const MARGIN_PX = 16;
-/** The card never grows past this, whatever the token's own block measures. */
 const MAX_CARD_WIDTH_PX = 720;
 const MIN_CARD_WIDTH_PX = 160;
 /** How far the card sits from the cursor, so the cursor never covers the first word. */
 const CURSOR_GAP_PX = 14;
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-
 /**
  * Every longhand that shapes how text renders. Copied one by one because the `font` shorthand
- * serialises to "" as soon as any longhand (feature settings, variation settings, numeric
- * variants) is non-default, which is the norm on pages with a tuned type stack.
+ * serialises to "" as soon as any longhand is non-default, which is the norm on a tuned type
+ * stack: https://drafts.csswg.org/cssom/#serialize-a-css-value
  */
 export const TYPOGRAPHY_PROPERTIES = [
   "font-family",
@@ -55,16 +52,12 @@ export interface Typography {
   blockWidth: number;
 }
 
-/** What the card shows for the token under the cursor. */
-export interface Preview {
-  key: string;
-  /** The plaintext, or `null` when it cannot be shown: see {@link Preview.reason}. */
-  text: string | null;
-  /** Why there is no plaintext; `fingerprint` names the other recipient when the envelope parses. */
-  reason: "locked" | "foreign" | "broken" | null;
-  fingerprint: string | null;
-  typography: Typography;
-}
+/** What the card shows for the token under the cursor: its plaintext, or why there is none. */
+export type Preview = { key: string; typography: Typography } & (
+  | { text: string }
+  | { reason: "locked" | "broken" }
+  | { reason: "foreign"; fingerprint: string | null }
+);
 
 export interface PaneHandlers {
   /** Asked for by a click on the card, or the token, while the session is locked. */
@@ -77,52 +70,59 @@ export interface Point {
   y: number;
 }
 
+interface Shown {
+  preview: Preview;
+  /** Where the card was last placed, and the corner it grew from; `null` until it is placed. */
+  placed: Point | null;
+  corner: Corner | null;
+}
+
 interface Pane {
   host: HTMLElement;
   card: HTMLElement;
   glass: HTMLElement;
   handlers: PaneHandlers;
-  shown: string | null;
-  /** What the card was built from, so a token whose result changed underneath it is redrawn. */
-  signature: string | null;
   motion: Motion;
-  /** Where the card was last placed; `null` while it is hidden or has just been rebuilt. */
-  placed: Point | null;
-  corner: Corner;
-  /** Bumped per close so a collapse that a reopen overtook never hides the new card. */
-  closing: number;
+  showing: Shown | null;
   detachLens(): void;
 }
 
 let pane: Pane | null = null;
 
-function svg(paths: string[], size: string): SVGSVGElement {
-  const node = document.createElementNS(SVG_NS, "svg");
-  node.setAttribute("viewBox", "0 0 24 24");
-  node.setAttribute("width", size);
-  node.setAttribute("height", size);
-  node.setAttribute("fill", "none");
-  node.setAttribute("stroke", "currentColor");
-  node.setAttribute("stroke-width", "2");
-  node.setAttribute("stroke-linecap", "round");
-  node.setAttribute("stroke-linejoin", "round");
-  node.setAttribute("aria-hidden", "true");
-  for (const d of paths) {
-    const path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("d", d);
-    node.appendChild(path);
-  }
-  return node;
+const textOf = (preview: Preview): string | null => ("text" in preview ? preview.text : null);
+const reasonOf = (preview: Preview): string | null => ("reason" in preview ? preview.reason : null);
+const fingerprintOf = (preview: Preview): string | null =>
+  "reason" in preview && preview.reason === "foreign" ? preview.fingerprint : null;
+
+function sameContent(a: Preview, b: Preview): boolean {
+  return (
+    a.key === b.key &&
+    textOf(a) === textOf(b) &&
+    reasonOf(a) === reasonOf(b) &&
+    fingerprintOf(a) === fingerprintOf(b)
+  );
 }
 
-const padlock = (): SVGSVGElement =>
-  svg(
-    [
-      "M5 11h14a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z",
-      "M7 11V7a5 5 0 0 1 10 0v4",
-    ],
-    "13",
-  );
+const PADLOCK_PATHS = [
+  "M5 11h14a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z",
+  "M7 11V7a5 5 0 0 1 10 0v4",
+];
+
+function padlock(): SVGSVGElement {
+  const node = el("svg", {
+    viewBox: "0 0 24 24",
+    width: "13",
+    height: "13",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "2",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "aria-hidden": "true",
+  });
+  for (const d of PADLOCK_PATHS) node.appendChild(el("path", { d }));
+  return node;
+}
 
 function mount(handlers: PaneHandlers): Pane {
   const { host, root } = createShadowHost();
@@ -130,10 +130,6 @@ function mount(handlers: PaneHandlers): Pane {
   card.className = "card";
   card.setAttribute(CARD_ATTR, "");
   card.hidden = true;
-  card.addEventListener("click", (event) => {
-    event.stopPropagation();
-    if (pane?.card.hasAttribute(LOCKED_ATTR)) pane.handlers.unlock();
-  });
   const glass = document.createElement("div");
   glass.className = "card-glass";
   glass.setAttribute(GLASS_ATTR, "");
@@ -144,55 +140,47 @@ function mount(handlers: PaneHandlers): Pane {
     card,
     glass,
     handlers,
-    shown: null,
-    signature: null,
     motion: createMotion(card, glass),
-    placed: null,
-    corner: "bottom-left",
-    closing: 0,
+    showing: null,
     detachLens: attachLens(root, glass),
   };
-  pane = created;
+  card.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (card.hasAttribute(LOCKED_ATTR)) created.handlers.unlock();
+  });
   return created;
 }
 
 function note(preview: Preview): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "card-note";
-  el.append(padlock());
+  const node = document.createElement("div");
+  node.className = "card-note";
+  node.append(padlock());
   const label = document.createElement("span");
   label.textContent =
-    preview.reason === "locked"
+    reasonOf(preview) === "locked"
       ? "Locked · click to unlock"
-      : preview.reason === "foreign"
-        ? `Encrypted for someone else · ${preview.fingerprint ?? "unknown"}`
+      : reasonOf(preview) === "foreign"
+        ? `Encrypted for someone else · ${fingerprintOf(preview) ?? "unknown"}`
         : "Couldn't decrypt this token";
-  el.appendChild(label);
-  return el;
+  node.appendChild(label);
+  return node;
 }
 
 function plaintext(preview: Preview, text: string): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "card-text";
-  el.setAttribute(TEXT_ATTR, "");
-  el.textContent = text;
+  const node = document.createElement("div");
+  node.className = "card-text";
+  node.setAttribute(TEXT_ATTR, "");
+  node.textContent = text;
   for (const property of TYPOGRAPHY_PROPERTIES) {
-    el.style.setProperty(property, preview.typography.styles[property]);
+    node.style.setProperty(property, preview.typography.styles[property]);
   }
-  return el;
+  return node;
 }
 
-/**
- * Mounts the card's host for a page with tokens and unmounts it when the last one goes, so a
- * page without tokens carries nothing of entziffer's.
- */
-export function renderPane(count: number, handlers: PaneHandlers): void {
-  if (count === 0) {
-    removePane();
-    return;
-  }
-  const current = pane ?? mount(handlers);
-  current.handlers = handlers;
+/** Mounts the card's host on first use, so a page without tokens carries nothing of entziffer's. */
+export function ensurePane(handlers: PaneHandlers): void {
+  pane = pane ?? mount(handlers);
+  pane.handlers = handlers;
 }
 
 /**
@@ -203,83 +191,76 @@ export function renderPane(count: number, handlers: PaneHandlers): void {
  * new spot on a spring: see {@link Motion.shift}.
  */
 export function moveCard(at: Point): void {
-  if (pane === null || pane.shown === null) return;
+  if (pane === null || pane.showing === null) return;
   const { offsetWidth: width, offsetHeight: height } = pane.card;
   let left = at.x + CURSOR_GAP_PX;
-  let horizontal = "left";
+  let horizontal: "left" | "right" = "left";
   if (left + width > window.innerWidth - EDGE_PX) {
     left = at.x - CURSOR_GAP_PX - width;
     horizontal = "right";
   }
   let top = at.y - CURSOR_GAP_PX - height;
-  let vertical = "bottom";
+  let vertical: "top" | "bottom" = "bottom";
   if (top < EDGE_PX) {
     top = at.y + CURSOR_GAP_PX;
     vertical = "top";
   }
   left = Math.max(EDGE_PX, left);
-  top = Math.max(EDGE_PX, top);
-  pane.corner = `${vertical}-${horizontal}` as Corner;
-  if (pane.placed !== null) pane.motion.shift(left - pane.placed.x, top - pane.placed.y);
-  pane.placed = { x: left, y: top };
+  top = Math.max(EDGE_PX, Math.min(top, window.innerHeight - EDGE_PX - height));
+  const corner: Corner = `${vertical}-${horizontal}`;
+  const { placed, corner: was } = pane.showing;
+  if (placed !== null) {
+    if (was !== null && was !== corner) pane.motion.jump(corner);
+    else pane.motion.shift(left - placed.x, top - placed.y);
+  }
+  pane.showing.placed = { x: left, y: top };
+  pane.showing.corner = corner;
   pane.card.style.left = `${left}px`;
   pane.card.style.top = `${top}px`;
 }
 
 /**
  * Shows `preview` in the card beside `at`, in the typography of the text it was decrypted from
- * and wrapped at that text's width, or takes the card down for `null`. The card is the only place
- * that plaintext exists outside the extension's own pages.
+ * and wrapped at that text's width, or takes the card down for `null`. The card keeps where it
+ * sits when `at` is omitted. The card is the only place that plaintext exists outside the
+ * extension's own pages.
  */
 export function showPreview(preview: Preview | null, at?: Point): void {
   if (pane === null) return;
+  const self = pane;
   if (preview === null) {
-    if (pane.shown === null) return;
-    const closing = ++pane.closing;
-    pane.shown = null;
-    pane.signature = null;
-    pane.motion.close(() => {
-      if (pane === null || pane.closing !== closing) return;
-      pane.card.hidden = true;
-      pane.glass.replaceChildren();
-      pane.placed = null;
+    if (self.showing === null) return;
+    self.showing = null;
+    self.motion.close(() => {
+      if (pane !== self || self.showing !== null) return;
+      self.card.hidden = true;
+      self.glass.replaceChildren();
     });
     return;
   }
-  const signature = JSON.stringify([
-    preview.key,
-    preview.text,
-    preview.reason,
-    preview.fingerprint,
-  ]);
-  const fresh = pane.card.hidden || pane.closing !== 0;
-  if (pane.signature !== signature) {
-    pane.closing = 0;
-    pane.shown = preview.key;
-    pane.signature = signature;
+  const current = self.showing;
+  const fresh = current === null;
+  if (current === null || !sameContent(current.preview, preview)) {
+    self.showing = { preview, placed: current?.placed ?? null, corner: current?.corner ?? null };
     const width = Math.min(
       MAX_CARD_WIDTH_PX,
       window.innerWidth - 2 * MARGIN_PX,
       Math.max(MIN_CARD_WIDTH_PX, preview.typography.blockWidth),
     );
-    pane.card.style.maxWidth = `${width}px`;
-    pane.card.toggleAttribute(LOCKED_ATTR, preview.reason === "locked");
-    pane.glass.replaceChildren(
-      preview.text === null ? note(preview) : plaintext(preview, preview.text),
-    );
-    pane.card.hidden = false;
+    const text = textOf(preview);
+    self.card.style.maxWidth = `${width}px`;
+    self.card.toggleAttribute(LOCKED_ATTR, reasonOf(preview) === "locked");
+    self.glass.replaceChildren(text === null ? note(preview) : plaintext(preview, text));
+    self.card.hidden = false;
   }
-  if (fresh) {
-    pane.motion.reset();
-    pane.placed = null;
-  }
+  if (fresh) self.motion.reset();
   if (at !== undefined) moveCard(at);
-  if (fresh) pane.motion.open(pane.corner);
+  if (fresh) self.motion.open(self.showing?.corner ?? undefined);
 }
 
 /** The key of the token the card is showing, if any. */
 export function shownKey(): string | null {
-  return pane?.shown ?? null;
+  return pane?.showing?.preview.key ?? null;
 }
 
 /** True when `event` originated inside the card, whose shadow boundary retargets it to the host. */
@@ -289,6 +270,7 @@ export function isPaneEvent(event: Event): boolean {
 
 export function removePane(): void {
   if (pane === null) return;
+  pane.motion.reset();
   pane.detachLens();
   pane.host.remove();
   pane = null;

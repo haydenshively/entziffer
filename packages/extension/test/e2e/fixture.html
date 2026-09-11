@@ -32,11 +32,16 @@
 
     <p id="foreign">Someone else's: __TOKEN_foreign__</p>
 
+    <p><a id="linked" href="/somewhere-else">__TOKEN_ascii-title__</a></p>
+
     <div id="dynamic"></div>
     <button id="insert" type="button">Insert token</button>
 
     <script src="/fixture-editor.js"></script>
     <script>
+      document.getElementById("linked").addEventListener("mousedown", () => {
+        window.__pressed = true;
+      });
       document.getElementById("insert").addEventListener("click", () => {
         const p = document.createElement("p");
         p.id = "dynamic-para";

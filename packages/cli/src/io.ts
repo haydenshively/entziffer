@@ -1,10 +1,17 @@
 import { CliError, EXIT_EMPTY_STDIN } from "./errors.js";
 
+let quiet = false;
+
+/** Silences {@link warn} process-wide; `run` sets it once from the global `--quiet` flag. */
+export function setQuiet(value: boolean): void {
+  quiet = value;
+}
+
 export function out(s: string): void {
   process.stdout.write(s);
 }
 
-export function warn(message: string, quiet: boolean): void {
+export function warn(message: string): void {
   if (!quiet) process.stderr.write(`entziffer: ${message}\n`);
 }
 

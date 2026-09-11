@@ -3,7 +3,6 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  * stepping while the card moves; stacking passes under the threshold keeps it full-resolution.
  * https://source.chromium.org/chromium/chromium/src/+/main:third_party/skia/src/gpu/ganesh/GrBlurUtils.cpp */
 const BODY_BLUR_PX = 4;
-const BODY_BLUR_PASSES = 2;
 const RIM_BLUR_PX = 0.8;
 const SATURATE = 1.8;
 const MAX_SHIFT_PX = 22;
@@ -13,41 +12,48 @@ const RIM_MAX_PX = 16;
 /** Red bends least and blue most, so the rim shows a faint colour fringe like real glass. */
 const CHANNEL_DISPERSION = { R: 0.9, G: 1, B: 1.12 } as const;
 
+const LENS_ID = "entz-lens";
+const MAP_CACHE_LIMIT = 16;
+
 type Channel = keyof typeof CHANNEL_DISPERSION;
 
-let nextId = 0;
+/** An `ImageData`-shaped RGBA buffer, so the pixel maths runs outside a canvas. */
+export interface Pixels {
+  width: number;
+  height: number;
+  data: Uint8ClampedArray;
+}
+
+const neutralProbe = new Uint8ClampedArray([128, 128, 0, 255]);
+const NEUTRAL_WORD = new Uint32Array(neutralProbe.buffer)[0] as number;
 
 /**
- * Builds the displacement map for a rounded rectangle of `width`×`height`: R/G neutral (128) in
- * the interior, ramping toward the centre inside the rim so the backdrop is stretched across
- * the edges like the bevel of a thick glass slab; B carries the rim weight, which masks the sharp
- * refracted layer over the frosted body. R/G encoding per the SVG filter spec:
- * https://www.w3.org/TR/filter-effects-1/#feDisplacementMapElement
+ * Paints the displacement map of a rounded rectangle: R/G encode the refraction per
+ * https://www.w3.org/TR/filter-effects-1/#feDisplacementMapElement, and B carries the rim weight
+ * that masks the sharp layer over the frosted body. The weight sits in B rather than alpha because
+ * `feImage` premultiplies, and a low-alpha rim would destroy the R/G displacement precision.
  */
-function displacementMap(width: number, height: number, radius: number): string | null {
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (ctx === null) return null;
-  const image = ctx.createImageData(width, height);
-  const data = image.data;
+export function paintDisplacement(image: Pixels, radius: number): void {
+  const { width, height, data } = image;
   const rim = Math.min(RIM_MAX_PX, Math.min(width, height) * RIM_FRACTION);
   const r = Math.min(radius, width / 2, height / 2);
   const hx = width / 2 - r;
   const hy = height / 2 - r;
+  const band = Math.min(Math.ceil(Math.max(rim, r)), Math.ceil(width / 2), Math.ceil(height / 2));
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+  new Uint32Array(data.buffer, data.byteOffset, width * height).fill(NEUTRAL_WORD);
+
+  const span = (y: number, from: number, to: number): void => {
+    const py = y + 0.5 - height / 2;
+    const qy = Math.abs(py) - hy;
+    for (let x = from; x < to; x++) {
       const px = x + 0.5 - width / 2;
-      const py = y + 0.5 - height / 2;
       const qx = Math.abs(px) - hx;
-      const qy = Math.abs(py) - hy;
       let nx = 0;
       let ny = 0;
       let inside: number;
       if (qx > 0 && qy > 0) {
-        const len = Math.hypot(qx, qy);
+        const len = Math.sqrt(qx * qx + qy * qy);
         inside = r - len;
         nx = qx / len;
         ny = qy / len;
@@ -58,28 +64,63 @@ function displacementMap(width: number, height: number, radius: number): string 
         inside = r - qy;
         ny = 1;
       }
-      const depth = inside < rim ? 1 - Math.max(inside, 0) / rim : 0;
-      const t = depth ** 3;
+      if (inside >= rim) continue;
+      const d = 1 - Math.max(inside, 0) / rim;
+      const t = d * d * d;
       const sx = -Math.sign(px) * nx * t;
       const sy = -Math.sign(py) * ny * t;
       const i = (y * width + x) * 4;
       data[i] = 128 + Math.round(sx * 127);
       data[i + 1] = 128 + Math.round(sy * 127);
-      data[i + 2] = Math.round(depth ** 1.5 * 255);
+      data[i + 2] = Math.round(d * Math.sqrt(d) * 255);
       data[i + 3] = 255;
     }
+  };
+
+  for (let y = 0; y < height; y++) {
+    if (y < band || y >= height - band) {
+      span(y, 0, width);
+      continue;
+    }
+    span(y, 0, Math.min(band, width));
+    span(y, Math.max(width - band, 0), width);
   }
-  ctx.putImageData(image, 0, 0);
-  return canvas.toDataURL();
 }
 
-function el<K extends keyof SVGElementTagNameMap>(
+const maps = new Map<string, string>();
+
+function displacementMap(width: number, height: number, radius: number): string | null {
+  const key = `${width}x${height}x${radius}`;
+  const cached = maps.get(key);
+  if (cached !== undefined) return cached;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (ctx === null) return null;
+  const image = ctx.createImageData(width, height);
+  paintDisplacement(image, radius);
+  ctx.putImageData(image, 0, 0);
+  const href = canvas.toDataURL();
+  maps.set(key, href);
+  for (const oldest of maps.keys()) {
+    if (maps.size <= MAP_CACHE_LIMIT) break;
+    maps.delete(oldest);
+  }
+  return href;
+}
+
+export function el<K extends keyof SVGElementTagNameMap>(
   name: K,
   attrs: Record<string, string>,
 ): SVGElementTagNameMap[K] {
   const node = document.createElementNS(SVG_NS, name);
   for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
   return node;
+}
+
+function blur(input: string, result: string, px: number): SVGElement {
+  return el("feGaussianBlur", { in: input, stdDeviation: String(px), result });
 }
 
 function channelMatrix(channel: Channel): string {
@@ -118,32 +159,16 @@ function refract(channel: Channel, input: string): SVGElement[] {
  */
 export function attachLens(root: ShadowRoot, target: HTMLElement): () => void {
   if (typeof ResizeObserver !== "function") return () => {};
-  const id = `entz-lens-${nextId++}`;
 
   const svg = el("svg", { width: "0", height: "0", "aria-hidden": "true" });
   svg.style.cssText = "position:fixed;width:0;height:0;overflow:hidden";
   const filter = el("filter", {
-    id,
+    id: LENS_ID,
     x: "0",
     y: "0",
     width: "100%",
     height: "100%",
     "color-interpolation-filters": "sRGB",
-  });
-  const body: SVGElement[] = [];
-  for (let pass = 0; pass < BODY_BLUR_PASSES; pass++) {
-    body.push(
-      el("feGaussianBlur", {
-        in: pass === 0 ? "SourceGraphic" : `body${pass - 1}`,
-        stdDeviation: String(BODY_BLUR_PX),
-        result: pass === BODY_BLUR_PASSES - 1 ? "body" : `body${pass}`,
-      }),
-    );
-  }
-  const sharp = el("feGaussianBlur", {
-    in: "SourceGraphic",
-    stdDeviation: String(RIM_BLUR_PX),
-    result: "sharp",
   });
   const map = el("feImage", { preserveAspectRatio: "none", result: "map" });
   const rimWeight = el("feColorMatrix", {
@@ -172,8 +197,9 @@ export function attachLens(root: ShadowRoot, target: HTMLElement): () => void {
     values: String(SATURATE),
   });
   filter.append(
-    ...body,
-    sharp,
+    blur("SourceGraphic", "body0", BODY_BLUR_PX),
+    blur("body0", "body", BODY_BLUR_PX),
+    blur("SourceGraphic", "sharp", RIM_BLUR_PX),
     map,
     rimWeight,
     ...refract("R", "sharp"),
@@ -187,20 +213,21 @@ export function attachLens(root: ShadowRoot, target: HTMLElement): () => void {
   );
   svg.appendChild(filter);
   root.appendChild(svg);
+  target.style.backdropFilter = `url(#${LENS_ID})`;
 
-  let lastKey = "";
+  let lastW = 0;
+  let lastH = 0;
   const observer = new ResizeObserver(() => {
     const width = Math.round(target.offsetWidth);
     const height = Math.round(target.offsetHeight);
     if (width === 0 || height === 0) return;
-    const key = `${width}x${height}`;
-    if (key === lastKey) return;
-    lastKey = key;
+    if (width === lastW && height === lastH) return;
+    lastW = width;
+    lastH = height;
     const radius = Number.parseFloat(getComputedStyle(target).borderTopLeftRadius) || 0;
     const href = displacementMap(width, height, radius);
     if (href === null) return;
     map.setAttribute("href", href);
-    target.style.backdropFilter = `url(#${id})`;
   });
   observer.observe(target);
 

@@ -28,8 +28,9 @@ node encrypt.mjs --decrypt --key <32-byte-hex | private-key.pem> "ENTZ1:..."
 ## Audit it
 
 1. Read [`../docs/format.md`](../docs/format.md), the normative spec.
-2. Read `encrypt.mjs` top to bottom (~160 lines). The header comment restates the byte
-   layout so you can check the code against the spec without switching files.
+2. Read `encrypt.mjs` top to bottom. The header comment restates the byte layout so you can
+   check the code against the spec without switching files; that restatement is not
+   normative — `docs/format.md` is, and it wins wherever the two disagree.
 3. Verify against the published vectors:
 
    ```sh

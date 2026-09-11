@@ -63,6 +63,4 @@ async function unlock(): Promise<void> {
 
 $("retry").addEventListener("click", () => void unlock());
 
-// Chrome allows `credentials.get` without transient activation, but a provider or policy can still
-// refuse; the retry button turns that into a plain user gesture.
 void unlock();

@@ -20,6 +20,7 @@ export {
   b64urlEncode,
   type Envelope,
   EPH_PUB_BYTES,
+  encodeHeader,
   FPR_BYTES,
   findTokens,
   GCM_TAG_BYTES,

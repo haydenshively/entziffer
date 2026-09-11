@@ -8,6 +8,7 @@ const CLOSE_EASING = "cubic-bezier(0.4, 0, 0.8, 0.4)";
 
 const STIFFNESS = 420;
 const DAMPING_RATIO = 0.9;
+const DAMPING = 2 * DAMPING_RATIO * Math.sqrt(STIFFNESS);
 const MAX_STRETCH = 0.03;
 /** Stretch per px/s of speed, so a brisk 180 px/s drag reaches the cap. */
 const STRETCH_PER_SPEED = MAX_STRETCH / 180;
@@ -17,19 +18,24 @@ const SETTLED = 0.05;
 /** The card corner nearest the cursor, where the droplet the card grows from sits. */
 export type Corner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
+const REDUCED_MOTION =
+  typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+
 export interface Motion {
-  /** Grows the card, already laid out at full size, out of a droplet at `corner`. */
-  open(corner: Corner): void;
+  /** Grows the card out of a droplet at `corner`, or at the one it last opened or jumped to. */
+  open(corner?: Corner): void;
   /** Collapses the card back into its droplet, then calls `done`; synchronously when nothing animates. */
   close(done: () => void): void;
   /** The card's target moved by (`dx`, `dy`); the card stays put and springs after it. */
   shift(dx: number, dy: number): void;
+  /** Drops the spring lag so the card sits on its target at once, without gliding to it. */
+  jump(corner: Corner): void;
   /** Drops every animation and lag so the card sits exactly on its target. */
   reset(): void;
 }
 
 function reducedMotion(): boolean {
-  return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return REDUCED_MOTION?.matches === true;
 }
 
 function animates(card: HTMLElement): boolean {
@@ -43,11 +49,10 @@ interface Droplet {
 }
 
 function droplet(corner: Corner, glass: HTMLElement): Droplet {
-  const [vertical, horizontal] = corner.split("-");
   return {
     transform: `scale(${DROPLET_PX / (glass.offsetWidth || 1)}, ${DROPLET_PX / (glass.offsetHeight || 1)})`,
     borderRadius: "50%",
-    transformOrigin: `${horizontal} ${vertical}`,
+    transformOrigin: corner.replace("-", " "),
   };
 }
 
@@ -60,8 +65,9 @@ function settled(glass: HTMLElement): Omit<Droplet, "transformOrigin"> {
 
 /**
  * Animates `card`, the shell that springs after the cursor, around `glass`, the surface that
- * morphs. The morph is a scale rather than a clip: Chromium never masks `backdrop-filter` output
- * with an animated `clip-path`, on the element or any ancestor.
+ * morphs. The morph is a scale rather than a clip: Chromium drops `backdrop-filter` output under
+ * an animated `clip-path`, on the element or any ancestor.
+ * https://issues.chromium.org/issues/40743317
  */
 export function createMotion(card: HTMLElement, glass: HTMLElement): Motion {
   let corner: Corner = "bottom-left";
@@ -86,9 +92,8 @@ export function createMotion(card: HTMLElement, glass: HTMLElement): Motion {
   const step = (now: number): void => {
     const dt = Math.min(MAX_STEP_S, (now - last) / 1000 || 0);
     last = now;
-    const damping = 2 * DAMPING_RATIO * Math.sqrt(STIFFNESS);
-    velX += (-STIFFNESS * lagX - damping * velX) * dt;
-    velY += (-STIFFNESS * lagY - damping * velY) * dt;
+    velX += (-STIFFNESS * lagX - DAMPING * velX) * dt;
+    velY += (-STIFFNESS * lagY - DAMPING * velY) * dt;
     lagX += velX * dt;
     lagY += velY * dt;
     const speed = Math.hypot(velX, velY);
@@ -116,7 +121,7 @@ export function createMotion(card: HTMLElement, glass: HTMLElement): Motion {
 
   return {
     open(at) {
-      corner = at;
+      if (at !== undefined) corner = at;
       cancelAnimations();
       stopSpring();
       if (!animates(card)) return;
@@ -161,6 +166,10 @@ export function createMotion(card: HTMLElement, glass: HTMLElement): Motion {
       lagX -= dx;
       lagY -= dy;
       spring();
+    },
+    jump(at) {
+      corner = at;
+      stopSpring();
     },
     reset() {
       cancelAnimations();

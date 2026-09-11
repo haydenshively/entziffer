@@ -19,6 +19,7 @@ import {
 } from "../shared/messages.js";
 import { broadcastUnlocked } from "./broadcast.js";
 import { clearKey, type KeyRecord, readKey, readSession, writeKey } from "./keystore.js";
+import { syncDynamicScripts } from "./scripts.js";
 import {
   installSessionListeners,
   lockNow,
@@ -32,9 +33,6 @@ import { getSettings, setSettings } from "./settings.js";
 
 const UNLOCK_PAGE = "unlock/index.html";
 const UNLOCK_WINDOW = { width: 440, height: 400 };
-
-const DYNAMIC_SCRIPT_ID = "entz-enabled-origins";
-const ALL_URLS = "<all_urls>";
 
 function identityOf(record: KeyRecord): KeyIdentity {
   return {
@@ -176,7 +174,6 @@ async function handle(
       return { settings: await getSettings() };
     case "setSettings": {
       const settings = await setSettings(request.patch);
-      await syncDynamicScripts();
       if (request.patch.autoLockMinutes !== undefined) await scheduleAutoLock();
       return { settings };
     }
@@ -206,37 +203,6 @@ chrome.runtime.onMessage.addListener(
     return true;
   },
 );
-
-/**
- * The content script runs nowhere until an origin is enabled: this registration is the only
- * thing that injects it, and an origin whose host permission has been revoked is dropped.
- */
-async function syncDynamicScripts(): Promise<void> {
-  const { enabledOrigins, allSites } = await getSettings();
-  const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [DYNAMIC_SCRIPT_ID] });
-  if (existing.length > 0) {
-    await chrome.scripting.unregisterContentScripts({ ids: [DYNAMIC_SCRIPT_ID] });
-  }
-  const matches: string[] = [];
-  if (allSites && (await chrome.permissions.contains({ origins: [ALL_URLS] }))) {
-    matches.push(ALL_URLS);
-  } else {
-    for (const origin of enabledOrigins) {
-      const pattern = `${origin}/*`;
-      if (await chrome.permissions.contains({ origins: [pattern] })) matches.push(pattern);
-    }
-  }
-  if (matches.length === 0) return;
-  await chrome.scripting.registerContentScripts([
-    {
-      id: DYNAMIC_SCRIPT_ID,
-      js: ["content.js"],
-      matches,
-      runAt: "document_idle",
-      persistAcrossSessions: false,
-    },
-  ]);
-}
 
 chrome.runtime.onStartup.addListener(() => void syncDynamicScripts());
 chrome.runtime.onInstalled.addListener(() => void syncDynamicScripts());

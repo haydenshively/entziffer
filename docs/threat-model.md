@@ -131,6 +131,10 @@ adds to a page is the shadow host for its hover card, hidden until you hover a t
   instead. Prose around the token stays editable in place, and copying and selecting the
   ciphertext are untouched.
 
+The page can tell entziffer is there: the highlights and the stylesheet that paints them are
+visible to it through `CSS.highlights` and `document.adoptedStyleSheets`. Only the plaintext is
+withheld from the page, never entziffer's presence.
+
 entziffer does not try to be an editor: modern editors are WYSIWYG surfaces with their own
 commands, and reimplementing them inside a card is not the business it is in. So it never puts
 cleartext into an editor, and makes no writes to a page at all — no action in the extension

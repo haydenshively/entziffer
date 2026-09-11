@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CARD_ATTR,
+  ensurePane,
   GLASS_ATTR,
   LOCKED_ATTR,
   moveCard,
   type PaneHandlers,
   type Preview,
   removePane,
-  renderPane,
   shownKey,
   showPreview,
   TEXT_ATTR,
@@ -37,13 +37,14 @@ const typography: Preview["typography"] = {
   blockWidth: 420,
 };
 
-const preview = (over: Partial<Preview> & { key: string }): Preview => ({
-  text: "hello",
-  reason: null,
-  fingerprint: null,
-  typography,
-  ...over,
-});
+const plain = (key: string, text = "hello"): Preview => ({ key, typography, text });
+
+const unreadable = (
+  key: string,
+  reason: "locked" | "broken" | "foreign",
+  fingerprint: string | null = null,
+): Preview =>
+  reason === "foreign" ? { key, typography, reason, fingerprint } : { key, typography, reason };
 
 function shadow(): ShadowRoot {
   const host = document.querySelector(`[${HOST_ATTR}]`);
@@ -64,9 +65,9 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("renderPane", () => {
+describe("ensurePane", () => {
   it("mounts only a hidden card for a page with tokens", () => {
-    renderPane(3, handlers);
+    ensurePane(handlers);
     expect([...shadow().children].map((el) => el.tagName.toLowerCase())).toContain("div");
     expect(shadow().querySelectorAll("div")).toHaveLength(2);
     expect(glass().children).toHaveLength(0);
@@ -75,17 +76,17 @@ describe("renderPane", () => {
   });
 
   it("unmounts entirely once the last token is gone", () => {
-    renderPane(1, handlers);
+    ensurePane(handlers);
     expect(document.querySelector(`[${HOST_ATTR}]`)).not.toBeNull();
-    renderPane(0, handlers);
+    removePane();
     expect(document.querySelector(`[${HOST_ATTR}]`)).toBeNull();
   });
 });
 
 describe("showPreview", () => {
   it("shows one plaintext in the token's own typography, then takes it down", () => {
-    renderPane(2, handlers);
-    showPreview(preview({ key: "a", text: "Fix the login redirect loop" }));
+    ensurePane(handlers);
+    showPreview(plain("a", "Fix the login redirect loop"));
     expect(card().hidden).toBe(false);
     expect(shownKey()).toBe("a");
     const text = card().querySelector(`[${TEXT_ATTR}]`) as HTMLElement;
@@ -108,9 +109,9 @@ describe("showPreview", () => {
   });
 
   it("sits beside the point it is shown at and flips to stay inside the viewport", () => {
-    renderPane(1, handlers);
+    ensurePane(handlers);
     // jsdom lays out nothing, so the card is 0×0: it sits 14px up and 14px right of the point.
-    showPreview(preview({ key: "a" }), { x: 100, y: 200 });
+    showPreview(plain("a"), { x: 100, y: 200 });
     expect(card().style.left).toBe("114px");
     expect(card().style.top).toBe("186px");
     moveCard({ x: 150, y: 260 });
@@ -124,34 +125,34 @@ describe("showPreview", () => {
   });
 
   it("holds nothing but the plaintext: no buttons, no inputs", () => {
-    renderPane(1, handlers);
-    showPreview(preview({ key: "a" }));
+    ensurePane(handlers);
+    showPreview(plain("a"));
     expect(card().querySelectorAll("button, input, textarea, a")).toHaveLength(0);
     expect(glass().children).toHaveLength(1);
     expect(card().hasAttribute(LOCKED_ATTR)).toBe(false);
   });
 
   it("redraws when the same token's result changes underneath it", () => {
-    renderPane(1, handlers);
-    showPreview(preview({ key: "a", text: null, reason: "locked" }));
+    ensurePane(handlers);
+    showPreview(unreadable("a", "locked"));
     expect(card().textContent).toContain("Locked");
-    showPreview(preview({ key: "a", text: "now readable" }));
+    showPreview(plain("a", "now readable"));
     expect(card().querySelector(`[${TEXT_ATTR}]`)?.textContent).toBe("now readable");
     expect(card().hasAttribute(LOCKED_ATTR)).toBe(false);
   });
 
   it("explains a token it cannot show, and unlocks on click only while locked", () => {
-    renderPane(1, handlers);
-    showPreview(preview({ key: "a", text: null, reason: "foreign", fingerprint: "1a2b-3c4d" }));
+    ensurePane(handlers);
+    showPreview(unreadable("a", "foreign", "1a2b-3c4d"));
     expect(card().textContent).toContain("Encrypted for someone else · 1a2b-3c4d");
     expect(card().querySelector(`[${TEXT_ATTR}]`)).toBeNull();
     card().click();
     expect(handlers.unlock).not.toHaveBeenCalled();
 
-    showPreview(preview({ key: "b", text: null, reason: "broken" }));
+    showPreview(unreadable("b", "broken"));
     expect(card().textContent).toContain("Couldn't decrypt this token");
 
-    showPreview(preview({ key: "c", text: null, reason: "locked" }));
+    showPreview(unreadable("c", "locked"));
     expect(card().textContent).toContain("Locked · click to unlock");
     expect(card().hasAttribute(LOCKED_ATTR)).toBe(true);
     card().click();

@@ -56,9 +56,11 @@ function touched(edits: Range[], tokens: GuardedToken[]): GuardedToken | null {
  * the pane. Listeners run in the capture phase on the document, ahead of the editor's own, and
  * cancel the input before the browser or the editor acts on it; the token the edit touched is
  * handed to {@link GuardOptions.onBlocked} so the pane can take over. Copying and selecting are
- * left alone.
+ * left alone. The returned function removes every listener again.
  */
-export function installGuard(options: GuardOptions): void {
+export function installGuard(options: GuardOptions): () => void {
+  const controller = new AbortController();
+  const { signal } = controller;
   const intercept = (event: Event, edits: Range[]): void => {
     if (edits.length === 0) return;
     const hit = touched(edits, options.tokens());
@@ -80,7 +82,7 @@ export function installGuard(options: GuardOptions): void {
           : [];
       intercept(event, targets.length > 0 ? targets : selectionRanges());
     },
-    { capture: true },
+    { capture: true, signal },
   );
 
   document.addEventListener(
@@ -90,12 +92,15 @@ export function installGuard(options: GuardOptions): void {
       if (!printable && !EDITING_KEYS.has(event.key)) return;
       intercept(event, selectionRanges());
     },
-    { capture: true },
+    { capture: true, signal },
   );
 
   for (const type of ["paste", "cut", "drop"]) {
     document.addEventListener(type, (event) => intercept(event, selectionRanges()), {
       capture: true,
+      signal,
     });
   }
+
+  return () => controller.abort();
 }

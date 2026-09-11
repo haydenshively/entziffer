@@ -1,27 +1,37 @@
 import { EntzifferError } from "@entziffer/core";
 import {
   type AutoLockMinutes,
+  type Broadcast,
   DEFAULT_SETTINGS,
   type KeyIdentity,
   type KeyStatus,
+  RESET_NOTICE_KEY,
   type Settings,
   send,
 } from "../shared/messages.js";
+import {
+  ALL_URLS,
+  type EnabledSites,
+  enabledSites,
+  removeOrigin,
+  requestOrigin,
+  toOrigin,
+} from "../shared/origins.js";
 import { createWithPrf, encodeBytes, getWithPrf } from "../shared/webauthn.js";
-
-const RESET_NOTICE_KEY = "keyStorageReset";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
-let identity: KeyIdentity | null = null;
 let settings: Settings = DEFAULT_SETTINGS;
+let sites: EnabledSites = { allSites: false, origins: [] };
 let status: KeyStatus | null = null;
 
+const identity = (): KeyIdentity | null => status?.identity ?? null;
+
 function say(message: string, isError = false): void {
-  const status = $("status");
-  status.textContent = message;
-  if (isError) status.setAttribute("data-error", "");
-  else status.removeAttribute("data-error");
+  const line = $("status");
+  line.textContent = message;
+  if (isError) line.setAttribute("data-error", "");
+  else line.removeAttribute("data-error");
 }
 
 function show(id: string, visible: boolean): void {
@@ -38,14 +48,16 @@ async function copy(text: string, button: HTMLButtonElement): Promise<void> {
 }
 
 function renderIdentity(): void {
-  show("onboarding", identity === null);
-  show("identity", identity !== null);
-  $("danger-fpr").textContent = identity?.fingerprint ?? "—";
-  if (identity === null) return;
-  $("fingerprint").textContent = identity.fingerprint;
-  $("public-key").textContent = identity.publicKey;
-  $("cli-snippet").textContent = `npx entziffer keys add me ${identity.publicKey}`;
+  const key = identity();
   const locked = status?.locked === true;
+  document.body.dataset.state = key === null ? "none" : locked ? "locked" : "unlocked";
+  show("onboarding", key === null);
+  show("identity", key !== null);
+  $("danger-fpr").textContent = key?.fingerprint ?? "—";
+  if (key === null) return;
+  $("fingerprint").textContent = key.fingerprint;
+  $("public-key").textContent = key.publicKey;
+  $("cli-snippet").textContent = `npx entziffer keys add me ${key.publicKey}`;
   $("key-state").textContent = locked
     ? "Locked. The next token you open will ask for your passkey."
     : "Unlocked for this browser session.";
@@ -83,25 +95,10 @@ async function setUp(create: boolean): Promise<void> {
     return;
   }
   status = reply.data.status;
-  identity = status.identity;
   await chrome.storage.local.remove(RESET_NOTICE_KEY);
   show("reset-notice", false);
   renderIdentity();
-  say(`Ready. Your public key is ${identity?.fingerprint ?? ""}.`);
-}
-
-const ALL_URLS = "<all_urls>";
-
-/** `https://example.com` from anything the user might paste, or `null` when it is not an origin. */
-function toOrigin(input: string): string | null {
-  const trimmed = input.trim();
-  if (trimmed === "") return null;
-  try {
-    const { origin, protocol } = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
-    return protocol === "http:" || protocol === "https:" ? origin : null;
-  } catch {
-    return null;
-  }
+  say(`Ready. Your public key is ${identity()?.fingerprint ?? ""}.`);
 }
 
 function renderOriginList(id: string, origins: string[], onRemove: (o: string) => void): void {
@@ -128,18 +125,26 @@ function renderOriginList(id: string, origins: string[], onRemove: (o: string) =
   }
 }
 
-function renderSettings(): void {
-  ($("all-sites") as HTMLInputElement).checked = settings.allSites;
-  renderOriginList("enabled-list", settings.enabledOrigins, (origin) => {
+function renderSites(): void {
+  ($("all-sites") as HTMLInputElement).checked = sites.allSites;
+  renderOriginList("enabled-list", sites.origins, (origin) => {
     void disableOrigin(origin);
   });
+}
+
+function renderSettings(): void {
   ($("auto-lock") as HTMLSelectElement).value = String(settings.autoLockMinutes);
 }
 
-/** Drops the origin and hands its host permission back, so the allowlist is the whole story. */
+async function refreshSites(): Promise<void> {
+  sites = await enabledSites();
+  renderSites();
+}
+
 async function disableOrigin(origin: string): Promise<void> {
-  await chrome.permissions.remove({ origins: [`${origin}/*`] });
-  await patch({ enabledOrigins: settings.enabledOrigins.filter((o) => o !== origin) });
+  await removeOrigin(origin);
+  await refreshSites();
+  say("Saved.");
 }
 
 async function patch(next: Partial<Settings>): Promise<void> {
@@ -158,12 +163,12 @@ async function refresh(): Promise<void> {
     send({ type: "getStatus" }),
     send({ type: "getSettings" }),
     chrome.storage.local.get(RESET_NOTICE_KEY),
+    refreshSites(),
   ]);
   status = state.ok ? state.data.status : null;
-  identity = status?.identity ?? null;
   if (config.ok) settings = config.data.settings;
   else say(`Settings unavailable: ${config.message}. Showing defaults.`, true);
-  show("reset-notice", stored[RESET_NOTICE_KEY] === true && identity === null);
+  show("reset-notice", stored[RESET_NOTICE_KEY] === true && identity() === null);
   renderIdentity();
   renderSettings();
 }
@@ -172,7 +177,8 @@ $("setup").addEventListener("click", () => void setUp(true));
 $("recover").addEventListener("click", () => void setUp(false));
 
 $("copy-public").addEventListener("click", (e) => {
-  if (identity !== null) void copy(identity.publicKey, e.currentTarget as HTMLButtonElement);
+  const key = identity();
+  if (key !== null) void copy(key.publicKey, e.currentTarget as HTMLButtonElement);
 });
 
 $("copy-cli").addEventListener("click", (e) => {
@@ -197,17 +203,13 @@ $("all-sites").addEventListener("change", async (event) => {
   const wanted = (event.target as HTMLInputElement).checked;
   if (!wanted) {
     await chrome.permissions.remove({ origins: [ALL_URLS] });
-    await patch({ allSites: false });
+    await refreshSites();
+    say("Saved.");
     return;
   }
   const granted = await chrome.permissions.request({ origins: [ALL_URLS] });
-  if (!granted) {
-    ($("all-sites") as HTMLInputElement).checked = false;
-    say("Permission declined.", true);
-    return;
-  }
-  await patch({ allSites: true });
-  say("entziffer is now enabled everywhere.");
+  await refreshSites();
+  say(granted ? "entziffer is now enabled everywhere." : "Permission declined.", !granted);
 });
 
 $("add-origin").addEventListener("click", async () => {
@@ -217,13 +219,13 @@ $("add-origin").addEventListener("click", async () => {
     say("Enter an http(s) origin, e.g. https://linear.app", true);
     return;
   }
-  const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
-  if (!granted) {
+  if (!(await requestOrigin(origin))) {
     say("Permission declined.", true);
     return;
   }
   field.value = "";
-  await patch({ enabledOrigins: [...settings.enabledOrigins, origin] });
+  await refreshSites();
+  say("Saved.");
 });
 
 $("auto-lock").addEventListener("change", (event) => {
@@ -232,8 +234,9 @@ $("auto-lock").addEventListener("change", (event) => {
 });
 
 $("forget").addEventListener("click", async () => {
-  if (identity === null) return;
-  if (($("forget-confirm") as HTMLInputElement).value.trim() !== identity.fingerprint) {
+  const key = identity();
+  if (key === null) return;
+  if (($("forget-confirm") as HTMLInputElement).value.trim() !== key.fingerprint) {
     say("Type the fingerprint exactly to confirm.", true);
     return;
   }
@@ -242,11 +245,17 @@ $("forget").addEventListener("click", async () => {
     say(reply.message, true);
     return;
   }
-  identity = null;
   status = null;
   ($("forget-confirm") as HTMLInputElement).value = "";
   renderIdentity();
   say("Key forgotten here. The passkey still exists; setting up with it returns the same key.");
 });
+
+chrome.runtime.onMessage.addListener((message: Broadcast) => {
+  if (message.type === "locked" || message.type === "unlocked") void refresh();
+});
+
+chrome.permissions.onAdded.addListener(() => void refreshSites());
+chrome.permissions.onRemoved.addListener(() => void refreshSites());
 
 void refresh();

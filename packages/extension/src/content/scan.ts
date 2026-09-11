@@ -3,6 +3,8 @@ import { findTokens, MARKER } from "@entziffer/core";
 /**
  * Anything matching this is treated as user-editable: the pane offers to edit it, and writing into
  * it is the one thing that can persist text back to the host application. See docs/threat-model.md.
+ * A form control's value is not a text node, so {@link scan} never reports a token inside one;
+ * `input` and `textarea` are here for {@link isEditable} alone.
  */
 export const EDITABLE_SELECTOR =
   '[contenteditable]:not([contenteditable="false"]), .ProseMirror, [role="textbox"], input, textarea';
@@ -61,6 +63,25 @@ export interface TokenLocation {
   startOffset: number;
   endNode: Text;
   endOffset: number;
+}
+
+/**
+ * Splits a token's range at the end of its `ENTZ1:` marker into the tag and the ciphertext body.
+ * A marker split across text nodes makes the whole token the tag and leaves an empty body.
+ */
+export function splitToken(loc: TokenLocation, range: Range): { tag: Range; body: Range } {
+  const at = loc.token.indexOf(MARKER);
+  const end = loc.startOffset + at + MARKER.length;
+  const body = range.cloneRange();
+  if (at < 0 || end > loc.startNode.length) {
+    body.collapse(false);
+    return { tag: range, body };
+  }
+  const tag = range.cloneRange();
+  tag.setStart(loc.startNode, loc.startOffset + at);
+  tag.setEnd(loc.startNode, end);
+  body.setStart(loc.startNode, end);
+  return { tag, body };
 }
 
 export function rangeOf(loc: TokenLocation): Range {

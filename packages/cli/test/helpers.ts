@@ -12,6 +12,11 @@ export const RECIPIENT_KEY: string = vectors.recipient.publicKey;
 export const RECIPIENT_FPR: string = vectors.recipient.fingerprint;
 export const VECTOR_TOKEN: string = vectors.vectors[0]?.token as string;
 
+const priv = await importRawPrivateKey(hexToBytes(vectors.recipient.privateKeyHex));
+const recipient = await importPublicKey(vectors.recipient.publicKey);
+const env = { ...process.env };
+delete env.XDG_CONFIG_HOME;
+
 export interface RunResult {
   status: number;
   stdout: string;
@@ -31,13 +36,11 @@ export function run(args: string[], opts?: { input?: string }): RunResult {
   const result = spawnSync(process.execPath, [BIN, ...args], {
     encoding: "utf8",
     input: opts?.input ?? "",
-    env: { ...process.env, XDG_CONFIG_HOME: undefined },
+    env,
   });
   return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
 }
 
-export async function decryptToken(token: string): Promise<string> {
-  const priv = await importRawPrivateKey(hexToBytes(vectors.recipient.privateKeyHex));
-  const pub = await importPublicKey(vectors.recipient.publicKey);
-  return decrypt(token, priv, pub.fpr);
+export function decryptToken(token: string): Promise<string> {
+  return decrypt(token, priv, recipient.fpr);
 }

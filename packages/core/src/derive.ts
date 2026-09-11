@@ -1,6 +1,13 @@
+import { hexToBytes } from "./bytes.js";
 import { subtle } from "./crypto.js";
 import { EntzifferError } from "./errors.js";
-import { ALGORITHM, derivePublicKeyRaw, fingerprint, RAW_KEY_BYTES } from "./keys.js";
+import {
+  ALGORITHM,
+  derivePublicKeyRaw,
+  fingerprint,
+  pkcs8FromSeed,
+  RAW_KEY_BYTES,
+} from "./keys.js";
 
 /** SHA-256("entziffer-key-derivation-v1"); normative in docs/format.md. */
 export const FIXED_PRF_SALT = hexToBytes(
@@ -16,9 +23,6 @@ export const PRF_OUTPUT_BYTES = 32;
  * later scheme has to opt in explicitly instead of reinterpreting an existing passkey.
  */
 export const DERIVATION_VERSION = 1;
-
-/** RFC 8410 PKCS#8 prefix for an X25519 private key; the only variable part is the 32-byte seed. */
-const PKCS8_X25519_PREFIX = hexToBytes("302e020100300506032b656e04220420");
 
 export interface DerivedKey {
   /** Non-extractable, `deriveBits` only. */
@@ -54,11 +58,7 @@ export async function deriveKeyFromPrf(prf: Uint8Array): Promise<DerivedKey> {
       RAW_KEY_BYTES * 8,
     ),
   );
-  // WebCrypto has no raw X25519 private-key import, so the seed is wrapped in PKCS#8 DER; the
-  // 32 seed bytes are transiently in the heap either way (see docs/threat-model.md).
-  const pkcs8 = new Uint8Array(PKCS8_X25519_PREFIX.length + seed.length);
-  pkcs8.set(PKCS8_X25519_PREFIX, 0);
-  pkcs8.set(seed, PKCS8_X25519_PREFIX.length);
+  const pkcs8 = pkcs8FromSeed(seed);
   const privateKey = await subtle().importKey("pkcs8", pkcs8 as BufferSource, ALGORITHM, false, [
     "deriveBits",
   ]);
@@ -66,8 +66,4 @@ export async function deriveKeyFromPrf(prf: Uint8Array): Promise<DerivedKey> {
   pkcs8.fill(0);
   const publicRaw = await derivePublicKeyRaw(privateKey);
   return { privateKey, publicRaw, fpr: await fingerprint(publicRaw) };
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  return Uint8Array.from(hex.match(/../g) ?? [], (b) => Number.parseInt(b, 16));
 }

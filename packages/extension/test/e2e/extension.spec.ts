@@ -105,7 +105,7 @@ const tokenCount = async (page: Page): Promise<number> =>
   (await highlighted(page, "entz-tag")).length + (await highlighted(page, "entz-foreign")).length;
 
 /** Waits for the first scan of the fixture to have tagged every token. */
-const scanned = (page: Page, count = 6): Promise<void> =>
+const scanned = (page: Page, count = 7): Promise<void> =>
   expect.poll(() => tokenCount(page)).toBe(count);
 
 /**
@@ -242,6 +242,7 @@ test("tags every token's marker with a highlight and leaves the ciphertext as re
       token("ascii-title"),
       token("title-60"),
       token("ascii-title"),
+      token("ascii-title"),
     ),
   );
   expect(await highlighted(page, "entz-foreign")).toEqual([token("foreign")]);
@@ -266,14 +267,14 @@ test("tags every token's marker with a highlight and leaves the ciphertext as re
       return null;
     }),
   ).toMatch(/color: color-mix\(in srgb, rgb\(0, 0, 0\) 65%, transparent/);
-  expect(await highlighted(page, "entz-dim")).toHaveLength(6);
+  expect(await highlighted(page, "entz-dim")).toHaveLength(7);
   expect(
     await page.evaluate(() =>
       [...CSS.highlights]
         .filter(([name]) => name === "entz-tag")
         .flatMap(([, h]) => [...h].map((r) => (r as Range).toString())),
     ),
-  ).toEqual(Array(5).fill("ENTZ1:"));
+  ).toEqual(Array(6).fill("ENTZ1:"));
   await page.close();
 });
 
@@ -316,15 +317,16 @@ test("hovering a token shows its plaintext in the token's own typography, then h
       token("with-newline"),
       token("ascii-title"),
       token("title-60"),
+      token("ascii-title"),
       token("foreign"),
     ),
   );
-  expect(await highlighted(page, "entz-tag")).toHaveLength(5);
+  expect(await highlighted(page, "entz-tag")).toHaveLength(6);
 
   await hoverNothing(page);
   await expect(card(page)).toBeHidden();
-  await expect.poll(() => highlighted(page, "entz-dim")).toHaveLength(6);
-  expect(await highlighted(page, "entz-tag")).toHaveLength(5);
+  await expect.poll(() => highlighted(page, "entz-dim")).toHaveLength(7);
+  expect(await highlighted(page, "entz-tag")).toHaveLength(6);
   await page.close();
 });
 
@@ -533,7 +535,7 @@ test("the card refracts its backdrop through an SVG filter and is the only thing
         return `${getComputedStyle(el).backdropFilter} ${map.slice(0, 15)}`;
       }),
     )
-    .toMatch(/^url\("#entz-lens-\d+"\) data:image\/png/);
+    .toMatch(/^url\("#entz-lens"\) data:image\/png/);
   await page.close();
 });
 
@@ -568,7 +570,7 @@ test("counts a token inserted after load within a second", async () => {
   const page = await openFixture();
   await scanned(page);
   await page.click("#insert");
-  await expect.poll(() => tokenCount(page), { timeout: 1_000 }).toBe(7);
+  await expect.poll(() => tokenCount(page), { timeout: 1_000 }).toBe(8);
   await hoverToken(page, "#dynamic-para");
   await expect(cardText(page)).toHaveText(plaintext("ascii-title"));
   await page.close();
@@ -629,6 +631,35 @@ test.describe("session lock", () => {
     await scanned(page);
     await hoverToken(page, "#para");
     await expect(card(page)).toContainText("Locked · click to unlock");
+    await page.close();
+  });
+
+  test("a token the page made a link unlocks instead of navigating", async () => {
+    await worker.evaluate(() => (globalThis as unknown as E2EHooks).__entzLockNow());
+    const page = await openFixture();
+    await scanned(page);
+
+    const opened = context.waitForEvent("page");
+    const point = await tagPoint(page, "#linked");
+    await page.mouse.click(point.x, point.y);
+    const unlockTab = await opened;
+    expect(unlockTab.url()).toContain("unlock/index.html");
+    await unlockTab.close();
+    // The link never fired: neither its default action nor the handler the page pressed it with.
+    expect(page.url()).toBe(server.url);
+    expect(
+      await page.evaluate(() => (window as unknown as { __pressed?: boolean }).__pressed),
+    ).toBeFalsy();
+
+    await worker.evaluate(
+      (prf) => (globalThis as unknown as E2EHooks).__entzUnlockWithPrf(prf),
+      E2E_PRF_HEX,
+    );
+    await expect.poll(() => highlighted(page, "entz-foreign")).toEqual([token("foreign")]);
+    const target = new URL("/somewhere-else", server.url).href;
+    await page.mouse.click(point.x, point.y);
+    await page.waitForURL(target);
+    expect(page.url()).toBe(target);
     await page.close();
   });
 
@@ -754,4 +785,49 @@ test.describe("real WebAuthn PRF ceremonies", () => {
     expect((await status()).identity?.publicKey).toBe(publicKey);
     await page.close();
   });
+});
+
+/**
+ * Reloading the extension orphans the content script already running in an open page: it keeps its
+ * decrypted tokens until the next scan finds its service worker gone, and must then hold nothing.
+ */
+test("an orphaned content script keeps no plaintext after the extension reloads", async () => {
+  const page = await openFixture();
+  await scanned(page);
+  const point = await tagPoint(page, "#para");
+  await page.mouse.move(point.x, point.y);
+  await expect(cardText(page)).toHaveText(plaintext("ascii-title"));
+  await hoverNothing(page);
+
+  await worker.evaluate(() => chrome.runtime.reload()).catch(() => undefined);
+  // A token the page has never asked about, so the scan it triggers has to reach the worker.
+  await page.evaluate((fresh) => {
+    const p = document.createElement("p");
+    p.id = "orphan-para";
+    p.textContent = `After the reload: ${fresh}`;
+    document.getElementById("dynamic")?.appendChild(p);
+  }, token("unicode-emoji"));
+
+  await expect(page.locator("[data-entz-host]")).toHaveCount(0);
+  await expect.poll(() => tokenCount(page)).toBe(0);
+
+  await page.mouse.move(point.x, point.y);
+  await page.waitForTimeout(300);
+  await expect(page.locator("[data-entz-card]")).toHaveCount(0);
+  expect(await textOf(page, "#para")).toBe(
+    `Heads up: ${token("ascii-title")} — please review today.`,
+  );
+  expect(
+    await page.evaluate(
+      (secrets) => {
+        const texts = [document.body.innerText];
+        for (const el of document.querySelectorAll("*")) {
+          if (el.shadowRoot !== null) texts.push(el.shadowRoot.textContent ?? "");
+        }
+        return secrets.some((s) => texts.some((t) => t.includes(s)));
+      },
+      [plaintext("ascii-title"), plaintext("unicode-emoji")],
+    ),
+  ).toBe(false);
+  await page.close();
 });

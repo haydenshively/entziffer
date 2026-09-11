@@ -5,11 +5,11 @@ export const AUTO_LOCK_CHOICES = [60, 240, 720, 1440] as const;
 
 export type AutoLockMinutes = (typeof AUTO_LOCK_CHOICES)[number];
 
+/**
+ * Everything else the UI needs — which sites are enabled — is derived from the granted host
+ * permissions instead, by `enabledSites` in `shared/origins.ts`.
+ */
 export interface Settings {
-  /** Origins (`https://example.com`) the user enabled; each one holds its own host permission. */
-  enabledOrigins: string[];
-  /** Set by "Enable on all sites", which requests `<all_urls>`. */
-  allSites: boolean;
   /** Minutes of inactivity before the derived key is dropped. */
   autoLockMinutes: AutoLockMinutes;
 }
@@ -49,19 +49,14 @@ export type Request =
 
 export type RequestType = Request["type"];
 
-/** Message types the service worker only honours from extension pages (options, popup). */
-export const PRIVILEGED_TYPES = [
-  "getUnlockParams",
-  "setupKey",
-  "unlock",
-  "lockNow",
-  "forgetKey",
-] as const satisfies readonly RequestType[];
+/** The only message types a content script may send; everything else is extension-pages-only. */
+export const CONTENT_TYPES = ["decrypt", "requestUnlock"] as const satisfies readonly RequestType[];
 
-export type PrivilegedType = (typeof PRIVILEGED_TYPES)[number];
+export type ContentType = (typeof CONTENT_TYPES)[number];
 
-export function isPrivileged(type: RequestType): type is PrivilegedType {
-  return (PRIVILEGED_TYPES as readonly RequestType[]).includes(type);
+/** An allowlist, so a new request type is privileged until it is deliberately opened up. */
+export function isPrivileged(type: RequestType): type is Exclude<RequestType, ContentType> {
+  return !(CONTENT_TYPES as readonly string[]).includes(type);
 }
 
 export interface ResponseData {
@@ -98,11 +93,10 @@ export type Response<K extends RequestType = RequestType> =
   | { ok: true; data: ResponseData[K] }
   | { ok: false; code: ErrorCode; message: string };
 
-export const DEFAULT_SETTINGS: Settings = {
-  enabledOrigins: [],
-  allSites: false,
-  autoLockMinutes: 720,
-};
+export const DEFAULT_SETTINGS: Settings = { autoLockMinutes: 720 };
+
+/** Set when the keystore drops pre-v3 records, so the options page can explain the reset once. */
+export const RESET_NOTICE_KEY = "keyStorageReset";
 
 /**
  * Resolves rather than rejects on a dead service worker, so callers on a page always get a

@@ -69,6 +69,24 @@ describe("reference/encrypt.mjs", () => {
     expect(core).toBe(vectors.derivation.publicKey);
   });
 
+  it("drops one trailing newline from --stdin, like the CLI", async () => {
+    const priv = await importRawPrivateKey(hexToBytes(RECIPIENT_HEX));
+    const pub = await importPublicKey(vectors.recipient.publicKey);
+    const token = run(["--to", vectors.recipient.publicKey, "--stdin"], "hello\n");
+    expect(await decrypt(token, priv, pub.fpr)).toBe("hello");
+  });
+
+  it("rejects malformed base64url in tokens and key strings", () => {
+    const bad = [
+      ["--decrypt", "--key", RECIPIENT_HEX, "ENTZ1:abc$def"],
+      ["--decrypt", "--key", RECIPIENT_HEX, `${vectors.vectors[0]?.token}=`],
+      ["--decrypt", "--key", RECIPIENT_HEX, "ENTZ1:A"],
+      ["--to", "entz1pk_zz!!", "x"],
+      ["--to", `${vectors.recipient.publicKey}A`, "x"],
+    ];
+    for (const args of bad) expect(spawn(args).status).not.toBe(0);
+  });
+
   it("refuses a token addressed to another key", () => {
     const r = spawn(["--decrypt", "--key", RECIPIENT_HEX, vectors.foreign.token]);
     expect(r.status).toBe(1);

@@ -58,10 +58,35 @@ describe("keys", () => {
     expect(withConfig("keys", "default", "me").status).toBe(0);
     expect(JSON.parse(withConfig("keys", "list", "--json").stdout).default).toBe("me");
 
-    expect(withConfig("keys", "rm", "me").status).toBe(0);
+    const removed = withConfig("keys", "rm", "me");
+    expect(removed.status).toBe(0);
+    expect(removed.stderr).toContain("default recipient is now other");
     const after = JSON.parse(withConfig("keys", "list", "--json").stdout);
     expect(after.default).toBe("other");
     expect(after.recipients).toHaveLength(1);
+
+    expect(withConfig("keys", "rm", "other").stderr).toContain("no default recipient");
+    expect(JSON.parse(withConfig("keys", "list", "--json").stdout).default).toBeNull();
+  });
+
+  it("lists a malformed recipient as invalid instead of aborting", () => {
+    mkdirSync(dirname(config), { recursive: true });
+    writeFileSync(
+      config,
+      JSON.stringify({
+        version: 1,
+        default: "me",
+        recipients: { me: { publicKey: RECIPIENT_KEY }, broken: { publicKey: "entz1pk_zz" } },
+      }),
+    );
+    const listed = JSON.parse(withConfig("keys", "list", "--json").stdout);
+    expect(listed.recipients.map((r: { fingerprint: string | null }) => r.fingerprint)).toEqual([
+      RECIPIENT_FPR,
+      null,
+    ]);
+    const text = withConfig("keys", "list");
+    expect(text.status).toBe(0);
+    expect(text.stdout).toContain("broken  invalid");
   });
 
   it("rejects an invalid public key and unknown names", () => {

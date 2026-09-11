@@ -1,6 +1,4 @@
 :host {
-  all: initial;
-
   --entz-glass: rgba(255, 255, 255, 0.3);
   --entz-rim-hi: rgba(255, 255, 255, 0.95);
   --entz-rim-mid: rgba(255, 255, 255, 0.55);
@@ -47,22 +45,22 @@
   z-index: 2147483647;
   box-sizing: border-box;
   width: fit-content;
-  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 8px);
   color: var(--entz-fg);
   font: 13px / 1.45 var(--entz-font);
-  pointer-events: auto;
 }
 
 .card-glass {
   position: relative;
   display: flex;
+  max-height: inherit;
   padding: 11px 15px;
   border-radius: 18px;
   background: var(--entz-glass);
   backdrop-filter: blur(4px) saturate(180%);
-  -webkit-backdrop-filter: blur(4px) saturate(180%);
   box-shadow: var(--entz-shadow);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .card-glass::before {

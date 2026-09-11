@@ -5,6 +5,7 @@ import { getSettings } from "./settings.js";
 const SENTINEL_KEY = "sessionAlive";
 const UNLOCK_WINDOW_KEY = "unlockWindowId";
 const AUTO_LOCK_ALARM = "entz-auto-lock";
+const AUTO_LOCK_SLACK_MS = 60_000;
 
 /**
  * `storage.session` is cleared by a browser restart and by an extension reload, neither of which
@@ -42,8 +43,13 @@ export async function lockNow(): Promise<void> {
   await broadcastLocked();
 }
 
+/** Rearms only when the armed alarm has drifted past {@link AUTO_LOCK_SLACK_MS}, so a burst of
+ * decrypts costs one `alarms.get` rather than a clear-and-create each. */
 export async function scheduleAutoLock(): Promise<void> {
   const { autoLockMinutes } = await getSettings();
+  const target = Date.now() + autoLockMinutes * 60_000;
+  const armed = await chrome.alarms.get(AUTO_LOCK_ALARM);
+  if (armed !== undefined && Math.abs(target - armed.scheduledTime) < AUTO_LOCK_SLACK_MS) return;
   await chrome.alarms.clear(AUTO_LOCK_ALARM);
   chrome.alarms.create(AUTO_LOCK_ALARM, { delayInMinutes: autoLockMinutes });
 }
