@@ -30,8 +30,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
-      - run: pnpm typecheck
       - run: pnpm -r build
+      - run: pnpm typecheck
       - run: pnpm test
 
   e2e:
@@ -46,7 +46,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
-      - run: npx playwright install --with-deps chromium
+      - run: pnpm --filter @entziffer/extension exec playwright install --with-deps chromium
       - run: pnpm --filter @entziffer/extension test:e2e
       - run: pnpm --filter @entziffer/extension zip
       - uses: actions/upload-artifact@v4
