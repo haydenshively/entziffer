@@ -1,27 +1,13 @@
 import {
-  b64urlDecode,
   type EntzPublicKey,
-  fingerprint,
   formatFingerprint,
   importPublicKey,
   PUBLIC_KEY_PREFIX,
-  RAW_KEY_BYTES,
 } from "@entziffer/core";
 import type { Config } from "./config.js";
 import { CliError, EXIT_CONFIG, EXIT_UNKNOWN_RECIPIENT, EXIT_USAGE } from "./errors.js";
 
 export const LITERAL_RECIPIENT = "literal";
-
-/** `null` for any entry that is not a well-formed key string, so one bad row cannot hide the rest. */
-export async function fingerprintOf(publicKey: string): Promise<string | null> {
-  if (!publicKey.startsWith(PUBLIC_KEY_PREFIX)) return null;
-  try {
-    const raw = b64urlDecode(publicKey.slice(PUBLIC_KEY_PREFIX.length));
-    return raw.length === RAW_KEY_BYTES ? formatFingerprint(await fingerprint(raw)) : null;
-  } catch {
-    return null;
-  }
-}
 
 export interface ResolvedRecipient {
   name: string;

@@ -1,4 +1,4 @@
-import type { DecryptResult, EntzifferErrorCode } from "@entziffer/core";
+import type { DecryptFailure, DecryptSuccess, EntzifferErrorCode } from "@entziffer/core";
 
 /** The only auto-lock delays the UI offers, in minutes: 1h, 4h, 12h, 24h. */
 export const AUTO_LOCK_CHOICES = [60, 240, 720, 1440] as const;
@@ -60,11 +60,10 @@ export function isPrivileged(type: RequestType): type is Exclude<RequestType, Co
 }
 
 /**
- * A decrypt result as the service worker returns it. `recipient` is the address book's name for
- * the token's recipient and appears only on an `FPR_MISMATCH`; `lookupByFingerprint` in
- * `shared/people.ts` documents what that name may be said to mean.
+ * A decrypt result as the service worker returns it. `recipient` is set only on an `FPR_MISMATCH`,
+ * and {@link namesByFingerprint} governs what it may be said to mean.
  */
-export type TokenResult = DecryptResult & { recipient?: string };
+export type TokenResult = DecryptSuccess | (DecryptFailure & { recipient?: string });
 
 export interface ResponseData {
   getStatus: { status: KeyStatus };

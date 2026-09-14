@@ -1,21 +1,34 @@
-import { formatFingerprint, GCM_TAG_BYTES, parseEnvelope } from "@entziffer/core";
-import { readConfig } from "../config.js";
+import {
+  fingerprintOfKeyString,
+  formatFingerprint,
+  GCM_TAG_BYTES,
+  parseEnvelope,
+} from "@entziffer/core";
+import { type Config, readConfig } from "../config.js";
 import { usageError } from "../errors.js";
 import { json, out } from "../io.js";
 import { parseCommand } from "../options.js";
-import { fingerprintOf } from "../recipient.js";
 import { USAGE } from "../usage.js";
 
 const UNKNOWN_RECIPIENT = "unknown";
 
+/** `inspect` describes the token itself, so a missing or broken config costs it only the name. */
+function configOrNull(path: string): Config | null {
+  try {
+    return readConfig(path);
+  } catch {
+    return null;
+  }
+}
+
 async function namesFor(fingerprint: string, configPath: string): Promise<string | null> {
-  const cfg = readConfig(configPath);
+  const cfg = configOrNull(configPath);
   if (cfg === null) return null;
   const matched: string[] = [];
   for (const [name, entry] of Object.entries(cfg.recipients)) {
-    if ((await fingerprintOf(entry.publicKey)) === fingerprint) matched.push(name);
+    if ((await fingerprintOfKeyString(entry.publicKey)) === fingerprint) matched.push(name);
   }
-  return matched.length === 0 ? null : matched.join(", ");
+  return matched.length === 0 ? null : matched.join(" or ");
 }
 
 export async function cmdInspect(args: string[]): Promise<void> {

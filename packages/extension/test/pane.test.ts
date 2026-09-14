@@ -144,6 +144,14 @@ describe("showPreview", () => {
     expect(card().hasAttribute(LOCKED_ATTR)).toBe(false);
   });
 
+  it("renames the same foreign token when the address book learns its key", () => {
+    ensurePane(handlers);
+    showPreview(unreadable("a", "foreign", "1a2b-3c4d"));
+    expect(card().textContent).toContain("Encrypted for someone else · 1a2b-3c4d");
+    showPreview(unreadable("a", "foreign", "1a2b-3c4d", "Alice"));
+    expect(card().textContent).toContain("Encrypted for Alice · 1a2b-3c4d");
+  });
+
   it("explains a token it cannot show, and unlocks on click only while locked", () => {
     ensurePane(handlers);
     showPreview(unreadable("a", "foreign", "1a2b-3c4d"));
@@ -156,7 +164,7 @@ describe("showPreview", () => {
     expect(card().textContent).toContain("Couldn't decrypt this token");
 
     showPreview(unreadable("a", "foreign", "1a2b-3c4d", "Alice"));
-    expect(card().textContent).toContain("Alice's · 1a2b-3c4d");
+    expect(card().textContent).toContain("Encrypted for Alice · 1a2b-3c4d");
 
     showPreview(unreadable("c", "locked"));
     expect(card().textContent).toContain("Locked · click to unlock");

@@ -10,6 +10,7 @@ import vectors from "../../core/test/vectors.json" with { type: "json" };
 export const BIN = fileURLToPath(new URL("../bin/entziffer.js", import.meta.url));
 export const RECIPIENT_KEY: string = vectors.recipient.publicKey;
 export const RECIPIENT_FPR: string = vectors.recipient.fingerprint;
+export const FOREIGN_KEY: string = vectors.foreign.publicKey;
 export const VECTOR_TOKEN: string = vectors.vectors[0]?.token as string;
 
 const priv = await importRawPrivateKey(hexToBytes(vectors.recipient.privateKeyHex));

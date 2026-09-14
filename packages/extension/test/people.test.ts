@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  fingerprintOf,
   getPeople,
-  lookupByFingerprint,
+  namesByFingerprint,
   parseConfigRecipients,
   setPeople,
 } from "../src/shared/people.js";
@@ -16,13 +15,18 @@ const ALICE = "entz1pk__sWZim4NXpI4lpbsahPtbYXpgPdd_KurSBKH54lUpjc";
 const ALICE_FPR = "3697-8b57";
 
 let stored: Record<string, unknown>;
+let reads: number;
 
 beforeEach(() => {
   stored = {};
+  reads = 0;
   (globalThis as Record<string, unknown>).chrome = {
     storage: {
       sync: {
-        get: async (key: string) => ({ [key]: stored[key] }),
+        get: async (key: string) => {
+          reads++;
+          return { [key]: stored[key] };
+        },
         set: async (patch: Record<string, unknown>) => Object.assign(stored, patch),
       },
     },
@@ -55,6 +59,11 @@ describe("getPeople", () => {
     ]);
   });
 
+  it("caps a name at 64 characters, after trimming", async () => {
+    stored.people = [{ name: `  ${"a".repeat(80)}  `, publicKey: ALICE }];
+    expect((await getPeople())[0]?.name).toBe("a".repeat(64));
+  });
+
   it("keeps one entry per public key", async () => {
     stored.people = [
       { name: "Alice", publicKey: ALICE },
@@ -77,27 +86,35 @@ describe("setPeople", () => {
   });
 });
 
-describe("lookupByFingerprint", () => {
+describe("namesByFingerprint", () => {
   it("names nobody when the book is empty or the fingerprint is unknown", async () => {
-    expect(await lookupByFingerprint(ALICE_FPR)).toBeNull();
+    expect((await namesByFingerprint()).size).toBe(0);
     await setPeople([{ name: "Alice", publicKey: ALICE }]);
-    expect(await lookupByFingerprint(TWIN_FPR)).toBeNull();
+    expect((await namesByFingerprint()).get(TWIN_FPR)).toBeUndefined();
   });
 
   it("names the one person a fingerprint belongs to", async () => {
     await setPeople([{ name: "Alice", publicKey: ALICE }]);
-    expect(await lookupByFingerprint(ALICE_FPR)).toBe("Alice");
+    expect((await namesByFingerprint()).get(ALICE_FPR)).toBe("Alice");
   });
 
   it("joins the names of two keys that share a fingerprint", async () => {
-    expect(await fingerprintOf(TWIN_A)).toBe(TWIN_FPR);
-    expect(await fingerprintOf(TWIN_B)).toBe(TWIN_FPR);
     await setPeople([
       { name: "Bob", publicKey: TWIN_A },
       { name: "Alice", publicKey: ALICE },
       { name: "Carol", publicKey: TWIN_B },
     ]);
-    expect(await lookupByFingerprint(TWIN_FPR)).toBe("Bob or Carol");
+    const names = await namesByFingerprint();
+    expect(names.get(TWIN_FPR)).toBe("Bob or Carol");
+    expect(names.get(ALICE_FPR)).toBe("Alice");
+  });
+
+  it("reads storage once for any number of lookups", async () => {
+    await setPeople([{ name: "Alice", publicKey: ALICE }]);
+    reads = 0;
+    const names = await namesByFingerprint();
+    expect(reads).toBe(1);
+    expect(names.get(ALICE_FPR)).toBe("Alice");
   });
 });
 

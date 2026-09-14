@@ -553,24 +553,27 @@ test("tags a token encrypted to someone else in grey and names its recipient on 
 
 test("names a foreign token's recipient as soon as the address book knows the key", async () => {
   const page = await openFixture();
-  await scanned(page);
-  await hoverToken(page, "#foreign");
-  await expect(card(page)).toContainText(`Encrypted for someone else · ${foreign.fingerprint}`);
+  try {
+    await scanned(page);
+    await hoverToken(page, "#foreign");
+    await expect(card(page)).toContainText(`Encrypted for someone else · ${foreign.fingerprint}`);
 
-  await worker.evaluate(
-    (people) => (globalThis as unknown as E2EHooks).__entzSetPeople(people),
-    [{ name: "Alice", publicKey: foreign.publicKey }],
-  );
-  await expect(card(page)).toContainText(`Alice's · ${foreign.fingerprint}`);
-  await expect(cardText(page)).toHaveCount(0);
-  await page.close();
+    await worker.evaluate(
+      (people) => (globalThis as unknown as E2EHooks).__entzSetPeople(people),
+      [{ name: "Alice", publicKey: foreign.publicKey }],
+    );
+    await expect(card(page)).toContainText(`Encrypted for Alice · ${foreign.fingerprint}`);
+    await expect(cardText(page)).toHaveCount(0);
+    await page.close();
 
-  const options = await context.newPage();
-  await options.goto(`chrome-extension://${EXTENSION_ID}/options/index.html#people`);
-  await expect(options.locator("#people-list")).toContainText("Alice");
-  await expect(options.locator("#people-list")).toContainText(foreign.fingerprint);
-  await options.close();
-  await worker.evaluate(() => (globalThis as unknown as E2EHooks).__entzSetPeople([]));
+    const options = await context.newPage();
+    await options.goto(`chrome-extension://${EXTENSION_ID}/options/index.html#people`);
+    await expect(options.locator("#people-list")).toContainText("Alice");
+    await expect(options.locator("#people-list")).toContainText(foreign.fingerprint);
+    await options.close();
+  } finally {
+    await worker.evaluate(() => (globalThis as unknown as E2EHooks).__entzSetPeople([]));
+  }
 });
 
 test("a framework rewriting its own text node swaps the token rather than adding one", async () => {

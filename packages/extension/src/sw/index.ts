@@ -7,7 +7,6 @@ import {
   EntzifferError,
   formatFingerprint,
   PUBLIC_KEY_PREFIX,
-  parseEnvelope,
 } from "@entziffer/core";
 import {
   isPrivileged,
@@ -17,11 +16,11 @@ import {
   type RequestType,
   type Response,
   type ResponseData,
-  type TokenResult,
 } from "../shared/messages.js";
-import { changedPeople, lookupByFingerprint, setPeople } from "../shared/people.js";
+import { changedPeople, setPeople } from "../shared/people.js";
 import { broadcastPeople, broadcastUnlocked } from "./broadcast.js";
 import { clearKey, type KeyRecord, readKey, readSession, writeKey } from "./keystore.js";
+import { withRecipients } from "./recipients.js";
 import { syncDynamicScripts } from "./scripts.js";
 import {
   installSessionListeners,
@@ -94,32 +93,6 @@ async function openUnlockWindow(sender: chrome.runtime.MessageSender): Promise<v
     ...centred,
   });
   if (created?.id !== undefined) await rememberUnlockWindow(created.id);
-}
-
-/**
- * Names the recipient of every token this key could not open, so the card can say whose a foreign
- * token is. One lookup per distinct fingerprint, and none at all for a page of readable tokens.
- */
-async function withRecipients(results: TokenResult[], tokens: string[]): Promise<TokenResult[]> {
-  const names = new Map<string, string | null>();
-  const out: TokenResult[] = [];
-  for (const [i, result] of results.entries()) {
-    if (result.ok || result.code !== "FPR_MISMATCH") {
-      out.push(result);
-      continue;
-    }
-    let fpr: string;
-    try {
-      fpr = formatFingerprint(parseEnvelope(tokens[i] as string).fpr);
-    } catch {
-      out.push(result);
-      continue;
-    }
-    if (!names.has(fpr)) names.set(fpr, await lookupByFingerprint(fpr));
-    const name = names.get(fpr) ?? null;
-    out.push(name === null ? result : { ...result, recipient: name });
-  }
-  return out;
 }
 
 function sameKey(a: ArrayBuffer, b: Uint8Array): boolean {

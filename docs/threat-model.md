@@ -156,7 +156,8 @@ The extension's **People** list, and the CLI's `recipients`, are names paired wi
 They hold no secrets, so they ride Chrome sync and sit in a mode-`0600` JSON file respectively;
 what they do reveal, to whoever holds that browser profile or that Chrome sync account, is who
 you correspond with and which keys you have been given. A token's four-byte fingerprint is
-matched against this list purely to put a name on a card — *Alice's · 1a2b-3c4d* — and a match
+matched against this list purely to put a name on a card — *Encrypted for Alice · 1a2b-3c4d* —
+and a match
 is a hint, never authentication: a sender writes whatever fingerprint it likes, and 32 bits
 invite collisions. See [format.md](format.md#fingerprint). Verify a key you were sent against
 what its owner's extension shows, character for character, before you trust the name beside it.

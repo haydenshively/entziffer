@@ -1,5 +1,5 @@
 import { formatFingerprint, MARKER, parseEnvelope } from "@entziffer/core";
-import { type Broadcast, send } from "../shared/messages.js";
+import { type Broadcast, send, type TokenResult } from "../shared/messages.js";
 import { createLru } from "./cache.js";
 import { installGuard } from "./guard.js";
 import { allLayers, dimLayer, foreignLayer, type HighlightLayer, tagLayer } from "./highlight.js";
@@ -24,9 +24,7 @@ const DEBOUNCE_MS = 100;
 const CACHE_LIMIT = 256;
 const MAX_ROOTS = 32;
 
-type CacheEntry =
-  | { ok: true; text: string }
-  | { ok: false; code: string; recipient?: string | undefined };
+type CacheEntry = TokenResult;
 
 const LOCKED: CacheEntry = { ok: false, code: "LOCKED" };
 

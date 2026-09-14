@@ -1,9 +1,8 @@
-import { formatFingerprint, importPublicKey } from "@entziffer/core";
+import { fingerprintOfKeyString, formatFingerprint, importPublicKey } from "@entziffer/core";
 import { type Config, emptyConfig, readConfig, requireConfig, writeConfig } from "../config.js";
 import { CliError, EXIT_UNKNOWN_RECIPIENT, usageError } from "../errors.js";
 import { json, out, warn } from "../io.js";
 import { parseCommand } from "../options.js";
-import { fingerprintOf } from "../recipient.js";
 import { USAGE } from "../usage.js";
 
 export async function cmdKeys(args: string[]): Promise<void> {
@@ -63,7 +62,7 @@ async function list(positionals: string[], configPath: string, asJson: boolean):
     Object.entries(cfg.recipients).map(async ([name, entry]) => ({
       name,
       publicKey: entry.publicKey,
-      fingerprint: await fingerprintOf(entry.publicKey),
+      fingerprint: await fingerprintOfKeyString(entry.publicKey),
       note: entry.note ?? null,
       default: cfg.default === name,
     })),

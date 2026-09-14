@@ -1,4 +1,4 @@
-import { EntzifferError, importPublicKey } from "@entziffer/core";
+import { EntzifferError, fingerprintOfKeyString, importPublicKey } from "@entziffer/core";
 import {
   type AutoLockMinutes,
   type Broadcast,
@@ -17,13 +17,7 @@ import {
   requestOrigin,
   toOrigin,
 } from "../shared/origins.js";
-import {
-  fingerprintOf,
-  getPeople,
-  type Person,
-  parseConfigRecipients,
-  setPeople,
-} from "../shared/people.js";
+import { getPeople, type Person, parseConfigRecipients, setPeople } from "../shared/people.js";
 import { createWithPrf, encodeBytes, getWithPrf } from "../shared/webauthn.js";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -173,18 +167,33 @@ function renderPeople(): void {
 
 async function refreshPeople(): Promise<void> {
   people = await getPeople();
-  fingerprints = new Map(
-    await Promise.all(
-      people.map(async (p) => [p.publicKey, await fingerprintOf(p.publicKey)] as const),
-    ),
+  const pairs = await Promise.all(
+    people.map(async (p) => [p.publicKey, await fingerprintOfKeyString(p.publicKey)] as const),
   );
+  fingerprints = new Map(pairs.filter((pair): pair is [string, string] => pair[1] !== null));
   renderPeople();
 }
 
+/**
+ * `chrome.storage.sync` rejects on its 8KB-per-item quota, its write-rate limits and whenever sync
+ * is unavailable, so every address-book write reports rather than throws. The list is re-read from
+ * the `people` broadcast the write itself triggers, which is also how another device's write lands.
+ */
+async function save(next: Person[], done: string): Promise<void> {
+  try {
+    await setPeople(next);
+  } catch (e) {
+    say(e instanceof Error ? e.message : String(e), true);
+    return;
+  }
+  say(done);
+}
+
 async function forgetPerson(person: Person): Promise<void> {
-  await setPeople(people.filter((p) => p.publicKey !== person.publicKey));
-  await refreshPeople();
-  say("Saved.");
+  await save(
+    people.filter((p) => p.publicKey !== person.publicKey),
+    "Saved.",
+  );
 }
 
 /**
@@ -197,15 +206,18 @@ async function addPerson(): Promise<void> {
   const known = (key: string): boolean => people.some((p) => p.publicKey === key);
   const imported = parseConfigRecipients(keyField.value);
   if (imported !== null) {
-    const fresh = imported.filter((p) => !known(p.publicKey));
+    const candidates = imported.filter((p) => !known(p.publicKey));
+    const usable = await Promise.all(candidates.map((p) => fingerprintOfKeyString(p.publicKey)));
+    const fresh = candidates.filter((_, i) => usable[i] !== null);
+    const skipped = candidates.length - fresh.length;
     if (fresh.length === 0) {
       say("That config names no one new.", true);
       return;
     }
-    await setPeople([...people, ...fresh]);
     keyField.value = "";
-    await refreshPeople();
-    say(`Imported ${fresh.length} from your CLI config.`);
+    const tail =
+      skipped === 0 ? "" : ` ${skipped} key${skipped === 1 ? "" : "s"} could not be read.`;
+    await save([...people, ...fresh], `Imported ${fresh.length} from your CLI config.${tail}`);
     return;
   }
   const name = nameField.value.trim();
@@ -224,11 +236,9 @@ async function addPerson(): Promise<void> {
     say("That key is already here.", true);
     return;
   }
-  await setPeople([...people, { name, publicKey: key }]);
   nameField.value = "";
   keyField.value = "";
-  await refreshPeople();
-  say(`Saved ${name}.`);
+  await save([...people, { name, publicKey: key }], `Saved ${name}.`);
 }
 
 function renderSettings(): void {
@@ -271,6 +281,7 @@ async function refresh(): Promise<void> {
   show("reset-notice", stored[RESET_NOTICE_KEY] === true && identity() === null);
   renderIdentity();
   renderSettings();
+  if (location.hash === "#people") $("people").scrollIntoView();
 }
 
 $("setup").addEventListener("click", () => void setUp(true));
@@ -328,7 +339,9 @@ $("add-origin").addEventListener("click", async () => {
   say("Saved.");
 });
 
-$("add-person").addEventListener("click", () => void addPerson());
+$("add-person").addEventListener("click", () => {
+  void addPerson();
+});
 
 $("auto-lock").addEventListener("change", (event) => {
   const minutes = Number((event.target as HTMLSelectElement).value) as AutoLockMinutes;
@@ -355,7 +368,7 @@ $("forget").addEventListener("click", async () => {
 
 chrome.runtime.onMessage.addListener((message: Broadcast) => {
   if (message.type === "people") void refreshPeople();
-  else void refresh();
+  else if (message.type === "locked" || message.type === "unlocked") void refresh();
 });
 
 chrome.permissions.onAdded.addListener(() => void refreshSites());

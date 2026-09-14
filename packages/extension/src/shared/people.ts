@@ -1,7 +1,6 @@
 import {
   b64urlDecode,
-  fingerprint,
-  formatFingerprint,
+  fingerprintOfKeyString,
   PUBLIC_KEY_PREFIX,
   RAW_KEY_BYTES,
 } from "@entziffer/core";
@@ -13,7 +12,9 @@ export interface Person {
 }
 
 const STORAGE_KEY = "people";
+const MAX_NAME_CHARS = 64;
 
+/** A shape check, not a validator: {@link fingerprintOfKeyString} is what says a key is usable. */
 function isKeyString(value: unknown): value is string {
   if (typeof value !== "string" || !value.startsWith(PUBLIC_KEY_PREFIX)) return false;
   try {
@@ -32,7 +33,7 @@ function sanitize(value: unknown): Person[] {
     const { name, publicKey } = entry as Partial<Person>;
     if (typeof name !== "string" || name.trim() === "" || !isKeyString(publicKey)) continue;
     if (people.some((p) => p.publicKey === publicKey)) continue;
-    people.push({ name: name.trim(), publicKey });
+    people.push({ name: name.trim().slice(0, MAX_NAME_CHARS), publicKey });
   }
   return people;
 }
@@ -50,24 +51,26 @@ export async function setPeople(people: Person[]): Promise<Person[]> {
 /** True for a `chrome.storage.onChanged` record that touched the address book. */
 export const changedPeople = (changes: Record<string, unknown>): boolean => STORAGE_KEY in changes;
 
-export async function fingerprintOf(publicKey: string): Promise<string> {
-  const raw = b64urlDecode(publicKey.slice(PUBLIC_KEY_PREFIX.length));
-  return formatFingerprint(await fingerprint(raw));
-}
-
 /**
- * The address book's name for whoever a token is encrypted *to*, or `null`. Names sharing a
- * fingerprint are joined with " or ".
+ * The address book's name for whoever a token is encrypted *to*, keyed by fingerprint. Names
+ * sharing a fingerprint are joined with " or ". One storage read and one hash pass for any number
+ * of tokens.
  *
  * A token's fingerprint is a routing hint its sender chose, not authentication: anyone can label a
  * token with any fingerprint and four bytes collide, so a name from here may only ever be shown as
  * whose the token is, never as who it came from.
  */
-export async function lookupByFingerprint(fpr: string): Promise<string | null> {
+export async function namesByFingerprint(): Promise<Map<string, string>> {
   const people = await getPeople();
-  const fprs = await Promise.all(people.map((p) => fingerprintOf(p.publicKey)));
-  const names = people.filter((_, i) => fprs[i] === fpr).map((p) => p.name);
-  return names.length === 0 ? null : names.join(" or ");
+  const fprs = await Promise.all(people.map((p) => fingerprintOfKeyString(p.publicKey)));
+  const names = new Map<string, string>();
+  for (const [i, fpr] of fprs.entries()) {
+    const name = people[i]?.name;
+    if (fpr === null || name === undefined) continue;
+    const seen = names.get(fpr);
+    names.set(fpr, seen === undefined ? name : `${seen} or ${name}`);
+  }
+  return names;
 }
 
 /**

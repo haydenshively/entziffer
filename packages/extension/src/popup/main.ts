@@ -80,7 +80,7 @@ async function init(): Promise<void> {
     send({ type: "getStatus" }),
     enabledSites(),
     currentOrigin(),
-    getPeople(),
+    getPeople().catch(() => []),
   ]);
   $("people").textContent = `People · ${people.length}`;
   if (!state.ok) {

@@ -202,6 +202,23 @@ describe("locking while a decrypt is in flight", () => {
     expect(mocks.send).toHaveBeenLastCalledWith({ type: "decrypt", tokens: [TOKEN] });
   });
 
+  it("re-asks for every token when the address book changes", async () => {
+    mocks.send.mockResolvedValue({ ok: true, data: { results: [{ ok: true, text: PLAINTEXT }] } });
+    await import("../src/content/index.js");
+    await flush();
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+
+    // A second scan alone asks for nothing: the cached result still answers for the token.
+    document.body.innerHTML += `<p>And again: ${TOKEN}</p>`;
+    await flush();
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+
+    broadcast({ type: "people" });
+    await flush();
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+    expect(mocks.send).toHaveBeenLastCalledWith({ type: "decrypt", tokens: [TOKEN] });
+  });
+
   it("tears itself down when the extension's context is gone", async () => {
     mocks.send.mockResolvedValue({ ok: true, data: { results: [{ ok: true, text: PLAINTEXT }] } });
     await import("../src/content/index.js");

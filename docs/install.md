@@ -87,8 +87,8 @@ identity and re-encrypting existing issues, which entziffer does not do for you.
 
 The options page's **People** section is a local list of names and `entz1pk_…` public keys. It
 exists for attribution: a token encrypted to somebody else cannot be read, but its four-byte
-fingerprint can be matched against this list, so its card says *Alice's · 1a2b-3c4d* instead of
-only *Encrypted for someone else*. Paste a coworker's `entz1pk_…` string, or paste a whole CLI
+fingerprint can be matched against this list, so its card says *Encrypted for Alice · 1a2b-3c4d*
+instead of only *Encrypted for someone else*. Paste a coworker's `entz1pk_…` string, or paste a whole CLI
 `config.json` and every recipient in it is imported at once. Compare a pasted key against the
 one the coworker's extension shows — the whole string, character for character, over a channel
 you trust — exactly as for `keys add` below; the fingerprint is a routing hint, not an identity

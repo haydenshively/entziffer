@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   exportPublicKey,
+  fingerprintOfKeyString,
   generateKeyPair,
   importPublicKey,
   PUBLIC_KEY_PREFIX,
 } from "../src/index.js";
+import vectors from "./vectors.json" with { type: "json" };
 
 describe("key strings", () => {
   it("exports and re-imports", async () => {
@@ -26,5 +28,25 @@ describe("key strings", () => {
     ["wrong length", `${PUBLIC_KEY_PREFIX}AAAA`],
   ])("%s → BAD_KEY_STRING", async (_n, s) => {
     await expect(importPublicKey(s)).rejects.toMatchObject({ code: "BAD_KEY_STRING" });
+  });
+});
+
+describe("fingerprintOfKeyString", () => {
+  it("formats the fingerprint of a key it would import", async () => {
+    expect(await fingerprintOfKeyString(vectors.recipient.publicKey)).toBe(
+      vectors.recipient.fingerprint,
+    );
+    expect(await fingerprintOfKeyString(vectors.foreign.publicKey)).toBe(
+      vectors.foreign.fingerprint,
+    );
+  });
+
+  it.each([
+    ["missing prefix", "AAAA"],
+    ["bad base64", `${PUBLIC_KEY_PREFIX}!!!!`],
+    ["wrong length", `${PUBLIC_KEY_PREFIX}AAAA`],
+    ["empty", ""],
+  ])("%s → null", async (_n, s) => {
+    expect(await fingerprintOfKeyString(s)).toBeNull();
   });
 });

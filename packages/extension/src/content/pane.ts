@@ -154,11 +154,11 @@ function mount(handlers: PaneHandlers): Pane {
   return created;
 }
 
-/** Whose a foreign token is, per the address book; `null` names no one. See `shared/people.ts`. */
+/** Whose a foreign token is, per the address book; see {@link namesByFingerprint}. */
 function foreignLabel(preview: Preview): string {
   const fpr = fingerprintOf(preview) ?? "unknown";
-  const recipient = recipientOf(preview);
-  return recipient === null ? `Encrypted for someone else · ${fpr}` : `${recipient}'s · ${fpr}`;
+  const recipient = recipientOf(preview) ?? "someone else";
+  return `Encrypted for ${recipient} · ${fpr}`;
 }
 
 function note(preview: Preview): HTMLElement {

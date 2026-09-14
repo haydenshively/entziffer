@@ -82,3 +82,15 @@ export async function derivePublicKeyRaw(priv: CryptoKey): Promise<Uint8Array> {
   const base = await subtle().importKey("raw", basePoint as BufferSource, ALGORITHM, true, []);
   return new Uint8Array(await subtle().deriveBits({ name: ALGORITHM, public: base }, priv, 256));
 }
+
+/**
+ * The formatted fingerprint of a public key string, or `null` when {@link importPublicKey} would
+ * reject it — so a key that names nobody here is exactly a key that could not have been added.
+ */
+export async function fingerprintOfKeyString(s: string): Promise<string | null> {
+  try {
+    return formatFingerprint((await importPublicKey(s)).fpr);
+  } catch {
+    return null;
+  }
+}

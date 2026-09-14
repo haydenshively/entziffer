@@ -71,7 +71,8 @@ batched round trip. Results are cached (LRU, 256 tokens) for the tab's lifetime.
   safety property of the extension: Linear's title and description are ProseMirror editors, and
   rewriting their text could persist plaintext back to Linear.
 - **Tokens encrypted to someone else** get the grey tag, and their card names the recipient's
-  fingerprint — or, when the address book knows that fingerprint, **Alice's · 1a2b-3c4d** (see
+  fingerprint — or, when the address book knows that fingerprint, **Encrypted for Alice ·
+  1a2b-3c4d** (see
   [People](#people)). Any other failure gets the same grey tag and a card saying so.
 - **A locked session** makes every token answer `LOCKED`. The tags are drawn either way, so the
   page looks the same; hovering shows a **Locked · click to unlock** card, and clicking the token

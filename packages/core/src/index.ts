@@ -37,6 +37,7 @@ export {
   type EntzPublicKey,
   exportPublicKey,
   fingerprint,
+  fingerprintOfKeyString,
   formatFingerprint,
   generateKeyPair,
   importPublicKey,
