@@ -43,8 +43,11 @@ const unreadable = (
   key: string,
   reason: "locked" | "broken" | "foreign",
   fingerprint: string | null = null,
+  recipient: string | null = null,
 ): Preview =>
-  reason === "foreign" ? { key, typography, reason, fingerprint } : { key, typography, reason };
+  reason === "foreign"
+    ? { key, typography, reason, fingerprint, recipient }
+    : { key, typography, reason };
 
 function shadow(): ShadowRoot {
   const host = document.querySelector(`[${HOST_ATTR}]`);
@@ -151,6 +154,9 @@ describe("showPreview", () => {
 
     showPreview(unreadable("b", "broken"));
     expect(card().textContent).toContain("Couldn't decrypt this token");
+
+    showPreview(unreadable("a", "foreign", "1a2b-3c4d", "Alice"));
+    expect(card().textContent).toContain("Alice's · 1a2b-3c4d");
 
     showPreview(unreadable("c", "locked"));
     expect(card().textContent).toContain("Locked · click to unlock");

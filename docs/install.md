@@ -83,6 +83,18 @@ The passkey is also provider-bound: PRF output belongs to the credential, so a p
 re-created in a different provider derives a *different* key. Switching providers means a new
 identity and re-encrypting existing issues, which entziffer does not do for you.
 
+### The People address book
+
+The options page's **People** section is a local list of names and `entz1pk_…` public keys. It
+exists for attribution: a token encrypted to somebody else cannot be read, but its four-byte
+fingerprint can be matched against this list, so its card says *Alice's · 1a2b-3c4d* instead of
+only *Encrypted for someone else*. Paste a coworker's `entz1pk_…` string, or paste a whole CLI
+`config.json` and every recipient in it is imported at once. Compare a pasted key against the
+one the coworker's extension shows — the whole string, character for character, over a channel
+you trust — exactly as for `keys add` below; the fingerprint is a routing hint, not an identity
+check. The list holds only public keys, so it rides Chrome sync to your other profiles, and
+adding someone lets you name their tokens, never read them.
+
 ### Locking and unlocking
 
 - Lock state has no indicator on the page; the tags are drawn either way. In a new browser
@@ -146,6 +158,9 @@ npx entziffer@latest keys list
 
 `keys add` creates `~/.config/entziffer/config.json` with mode `0600` when it does not exist
 yet; there is no separate init step.
+
+`entziffer inspect <token>` reports the recipient by name when the token's fingerprint matches a
+key in `keys list`, and `unknown` (`null` in `--json`) when it matches nothing.
 
 ### Config file
 

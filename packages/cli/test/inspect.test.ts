@@ -1,5 +1,30 @@
-import { describe, expect, it } from "vitest";
-import { RECIPIENT_FPR, run, VECTOR_TOKEN } from "./helpers.js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  cleanup,
+  RECIPIENT_FPR,
+  RECIPIENT_KEY,
+  run,
+  tempConfigPath,
+  VECTOR_TOKEN,
+} from "./helpers.js";
+
+let config: string;
+
+beforeEach(() => {
+  config = tempConfigPath();
+});
+afterEach(() => {
+  cleanup(config);
+});
+
+function writeRecipients(recipients: Record<string, { publicKey: string }>): void {
+  mkdirSync(dirname(config), { recursive: true });
+  writeFileSync(config, JSON.stringify({ version: 1, recipients }));
+}
+
+const withConfig = (...args: string[]) => run([...args, "--config", config]);
 
 describe("inspect", () => {
   it("describes a known vector token without decrypting", () => {
@@ -13,9 +38,44 @@ describe("inspect", () => {
   });
 
   it("prints a human-readable report", () => {
-    expect(run(["inspect", VECTOR_TOKEN]).stdout).toBe(
-      `version: 1\nfingerprint: ${RECIPIENT_FPR}\nciphertext: 43 bytes\nplaintext: 27 bytes\n`,
+    expect(withConfig("inspect", VECTOR_TOKEN).stdout).toBe(
+      `version: 1\nfingerprint: ${RECIPIENT_FPR}\nrecipient: unknown\n` +
+        "ciphertext: 43 bytes\nplaintext: 27 bytes\n",
     );
+  });
+
+  it("names a configured recipient whose key matches the envelope fingerprint", () => {
+    writeRecipients({ alice: { publicKey: RECIPIENT_KEY } });
+    expect(withConfig("inspect", VECTOR_TOKEN).stdout).toBe(
+      `version: 1\nfingerprint: ${RECIPIENT_FPR}\nrecipient: alice\n` +
+        "ciphertext: 43 bytes\nplaintext: 27 bytes\n",
+    );
+    expect(JSON.parse(withConfig("inspect", VECTOR_TOKEN, "--json").stdout).recipient).toBe(
+      "alice",
+    );
+  });
+
+  it("reports every recipient sharing the key, and skips malformed entries", () => {
+    writeRecipients({
+      alice: { publicKey: RECIPIENT_KEY },
+      bob: { publicKey: "not-a-key" },
+      carol: { publicKey: RECIPIENT_KEY },
+    });
+    expect(JSON.parse(withConfig("inspect", VECTOR_TOKEN, "--json").stdout).recipient).toBe(
+      "alice, carol",
+    );
+  });
+
+  it("reports null for an unknown fingerprint and for a missing config file", () => {
+    writeRecipients({ bob: { publicKey: "entz1pk_ZZZZ" } });
+    expect(JSON.parse(withConfig("inspect", VECTOR_TOKEN, "--json").stdout).recipient).toBeNull();
+
+    const parsed = JSON.parse(withConfig("inspect", VECTOR_TOKEN, "--json").stdout);
+    expect(parsed.fingerprint).toBe(RECIPIENT_FPR);
+  });
+
+  it("works with no config file at all", () => {
+    expect(JSON.parse(withConfig("inspect", VECTOR_TOKEN, "--json").stdout).recipient).toBeNull();
   });
 
   it("rejects malformed tokens with exit code 5", () => {

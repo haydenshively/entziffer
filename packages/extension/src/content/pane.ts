@@ -56,7 +56,7 @@ export interface Typography {
 export type Preview = { key: string; typography: Typography } & (
   | { text: string }
   | { reason: "locked" | "broken" }
-  | { reason: "foreign"; fingerprint: string | null }
+  | { reason: "foreign"; fingerprint: string | null; recipient: string | null }
 );
 
 export interface PaneHandlers {
@@ -93,13 +93,16 @@ const textOf = (preview: Preview): string | null => ("text" in preview ? preview
 const reasonOf = (preview: Preview): string | null => ("reason" in preview ? preview.reason : null);
 const fingerprintOf = (preview: Preview): string | null =>
   "reason" in preview && preview.reason === "foreign" ? preview.fingerprint : null;
+const recipientOf = (preview: Preview): string | null =>
+  "reason" in preview && preview.reason === "foreign" ? preview.recipient : null;
 
 function sameContent(a: Preview, b: Preview): boolean {
   return (
     a.key === b.key &&
     textOf(a) === textOf(b) &&
     reasonOf(a) === reasonOf(b) &&
-    fingerprintOf(a) === fingerprintOf(b)
+    fingerprintOf(a) === fingerprintOf(b) &&
+    recipientOf(a) === recipientOf(b)
   );
 }
 
@@ -151,6 +154,13 @@ function mount(handlers: PaneHandlers): Pane {
   return created;
 }
 
+/** Whose a foreign token is, per the address book; `null` names no one. See `shared/people.ts`. */
+function foreignLabel(preview: Preview): string {
+  const fpr = fingerprintOf(preview) ?? "unknown";
+  const recipient = recipientOf(preview);
+  return recipient === null ? `Encrypted for someone else · ${fpr}` : `${recipient}'s · ${fpr}`;
+}
+
 function note(preview: Preview): HTMLElement {
   const node = document.createElement("div");
   node.className = "card-note";
@@ -160,7 +170,7 @@ function note(preview: Preview): HTMLElement {
     reasonOf(preview) === "locked"
       ? "Locked · click to unlock"
       : reasonOf(preview) === "foreign"
-        ? `Encrypted for someone else · ${fingerprintOf(preview) ?? "unknown"}`
+        ? foreignLabel(preview)
         : "Couldn't decrypt this token";
   node.appendChild(label);
   return node;

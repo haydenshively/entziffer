@@ -42,6 +42,7 @@ interface E2EHooks {
   __entzSetSettings(patch: Record<string, unknown>): Promise<unknown>;
   __entzKeyRecordMeta(): Promise<KeyRecordMeta | null>;
   __entzClearKey(): Promise<void>;
+  __entzSetPeople(people: { name: string; publicKey: string }[]): Promise<unknown>;
   __entzUnlockWithPrf(prfHex: string): Promise<unknown>;
   __entzLockNow(): Promise<void>;
   __entzStatus(): Promise<{ status: KeyStatus }>;
@@ -548,6 +549,28 @@ test("tags a token encrypted to someone else in grey and names its recipient on 
   await expect(card(page)).toContainText(`Encrypted for someone else · ${foreign.fingerprint}`);
   await expect(cardText(page)).toHaveCount(0);
   await page.close();
+});
+
+test("names a foreign token's recipient as soon as the address book knows the key", async () => {
+  const page = await openFixture();
+  await scanned(page);
+  await hoverToken(page, "#foreign");
+  await expect(card(page)).toContainText(`Encrypted for someone else · ${foreign.fingerprint}`);
+
+  await worker.evaluate(
+    (people) => (globalThis as unknown as E2EHooks).__entzSetPeople(people),
+    [{ name: "Alice", publicKey: foreign.publicKey }],
+  );
+  await expect(card(page)).toContainText(`Alice's · ${foreign.fingerprint}`);
+  await expect(cardText(page)).toHaveCount(0);
+  await page.close();
+
+  const options = await context.newPage();
+  await options.goto(`chrome-extension://${EXTENSION_ID}/options/index.html#people`);
+  await expect(options.locator("#people-list")).toContainText("Alice");
+  await expect(options.locator("#people-list")).toContainText(foreign.fingerprint);
+  await options.close();
+  await worker.evaluate(() => (globalThis as unknown as E2EHooks).__entzSetPeople([]));
 });
 
 test("a framework rewriting its own text node swaps the token rather than adding one", async () => {

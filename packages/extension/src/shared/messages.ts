@@ -59,6 +59,13 @@ export function isPrivileged(type: RequestType): type is Exclude<RequestType, Co
   return !(CONTENT_TYPES as readonly string[]).includes(type);
 }
 
+/**
+ * A decrypt result as the service worker returns it. `recipient` is the address book's name for
+ * the token's recipient and appears only on an `FPR_MISMATCH`; `lookupByFingerprint` in
+ * `shared/people.ts` documents what that name may be said to mean.
+ */
+export type TokenResult = DecryptResult & { recipient?: string };
+
 export interface ResponseData {
   getStatus: { status: KeyStatus };
   getUnlockParams: { params: UnlockParams };
@@ -66,7 +73,7 @@ export interface ResponseData {
   setupKey: { status: KeyStatus };
   unlock: { status: KeyStatus };
   lockNow: Record<string, never>;
-  decrypt: { results: DecryptResult[] };
+  decrypt: { results: TokenResult[] };
   getSettings: { settings: Settings };
   setSettings: { settings: Settings };
   forgetKey: Record<string, never>;
@@ -87,7 +94,12 @@ export interface LockedBroadcast {
   type: "locked";
 }
 
-export type Broadcast = UnlockedBroadcast | LockedBroadcast;
+/** Broadcast when the address book changes, so open tabs re-ask about the tokens they hold. */
+export interface PeopleBroadcast {
+  type: "people";
+}
+
+export type Broadcast = UnlockedBroadcast | LockedBroadcast | PeopleBroadcast;
 
 export type Response<K extends RequestType = RequestType> =
   | { ok: true; data: ResponseData[K] }

@@ -39,7 +39,9 @@ the text is drawn in the same font, size, weight, and colour as the ciphertext i
 wrapped at that element's width. The card is that plaintext and nothing else — it has no
 buttons. Clicking a token pins its card until you hover another one or press Escape, which is
 when you can select the text in it and copy it by hand; tokens encrypted to somebody else get a
-grey tag and a grey *Encrypted for someone else* card. Editing a token in the page's own editor
+grey tag and a grey *Encrypted for someone else* card, named — *Alice's · 1a2b-3c4d* — when
+that key is in the address book you keep on the options page under *People*, which the CLI
+mirrors, so `entziffer inspect` names the recipient of a token too. Editing a token in the page's own editor
 is refused, since editing ciphertext would corrupt it; the refused edit pins that token's card
 by its tag instead. entziffer makes no writes of its own: to change an encrypted field, copy
 the plaintext off the card, encrypt the new value through the CLI, and paste the ciphertext

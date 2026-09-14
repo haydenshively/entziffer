@@ -100,7 +100,11 @@ Switch or remove a recipient. Removing the default promotes another recipient wh
 ### `inspect <token> [--json]`
 
 Parses a token without decrypting it: version, recipient fingerprint, ciphertext size, and the
-plaintext byte length (ciphertext minus the 16-byte GCM tag).
+plaintext byte length (ciphertext minus the 16-byte GCM tag). The report also names the
+recipient when the fingerprint matches a key in `keys list` — `recipient: alice` in text,
+`"recipient": "alice"` in JSON, `unknown`/`null` when nothing matches, and every matching name
+joined with `, ` when several share a key. The fingerprint is a routing hint, not an identity
+check.
 
 ## Configuration
 

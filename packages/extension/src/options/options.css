@@ -230,6 +230,19 @@ pre code {
   min-width: 200px;
 }
 
+#person-name {
+  flex: 0 1 150px;
+  min-width: 110px;
+}
+
+.list li .who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .list {
   margin: 14px 0 0;
   padding: 4px;

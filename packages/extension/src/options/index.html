@@ -117,6 +117,33 @@
         </label>
       </section>
 
+      <section id="people" class="glass card">
+        <h2>People</h2>
+        <p class="muted fine">
+          Names for the public keys you know, so a token encrypted to someone else says whose it
+          is. A token's fingerprint is a hint about who can read it, not proof of who wrote it.
+          Names and keys sync with your Chrome profile; nothing secret is stored here.
+        </p>
+        <div class="row add">
+          <input
+            id="person-name"
+            class="glass-field name"
+            type="text"
+            placeholder="Name"
+            spellcheck="false"
+          />
+          <input
+            id="person-key"
+            class="glass-field"
+            type="text"
+            placeholder="entz1pk_… or paste your CLI config.json"
+            spellcheck="false"
+          />
+          <button id="add-person" class="glass-button" type="button">Add</button>
+        </div>
+        <ul id="people-list" class="list"></ul>
+      </section>
+
       <section id="danger" class="glass card">
         <h2>Danger zone</h2>
         <p class="muted fine">

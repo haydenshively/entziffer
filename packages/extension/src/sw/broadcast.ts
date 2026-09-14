@@ -23,3 +23,6 @@ export const broadcastUnlocked = (): Promise<void> => broadcast({ type: "unlocke
  * not complete until every tab has been told.
  */
 export const broadcastLocked = (): Promise<void> => broadcast({ type: "locked" });
+
+/** Sent when the address book changes; see {@link Broadcast}. */
+export const broadcastPeople = (): Promise<void> => broadcast({ type: "people" });

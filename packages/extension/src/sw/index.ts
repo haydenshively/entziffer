@@ -7,6 +7,7 @@ import {
   EntzifferError,
   formatFingerprint,
   PUBLIC_KEY_PREFIX,
+  parseEnvelope,
 } from "@entziffer/core";
 import {
   isPrivileged,
@@ -16,8 +17,10 @@ import {
   type RequestType,
   type Response,
   type ResponseData,
+  type TokenResult,
 } from "../shared/messages.js";
-import { broadcastUnlocked } from "./broadcast.js";
+import { changedPeople, lookupByFingerprint, setPeople } from "../shared/people.js";
+import { broadcastPeople, broadcastUnlocked } from "./broadcast.js";
 import { clearKey, type KeyRecord, readKey, readSession, writeKey } from "./keystore.js";
 import { syncDynamicScripts } from "./scripts.js";
 import {
@@ -91,6 +94,32 @@ async function openUnlockWindow(sender: chrome.runtime.MessageSender): Promise<v
     ...centred,
   });
   if (created?.id !== undefined) await rememberUnlockWindow(created.id);
+}
+
+/**
+ * Names the recipient of every token this key could not open, so the card can say whose a foreign
+ * token is. One lookup per distinct fingerprint, and none at all for a page of readable tokens.
+ */
+async function withRecipients(results: TokenResult[], tokens: string[]): Promise<TokenResult[]> {
+  const names = new Map<string, string | null>();
+  const out: TokenResult[] = [];
+  for (const [i, result] of results.entries()) {
+    if (result.ok || result.code !== "FPR_MISMATCH") {
+      out.push(result);
+      continue;
+    }
+    let fpr: string;
+    try {
+      fpr = formatFingerprint(parseEnvelope(tokens[i] as string).fpr);
+    } catch {
+      out.push(result);
+      continue;
+    }
+    if (!names.has(fpr)) names.set(fpr, await lookupByFingerprint(fpr));
+    const name = names.get(fpr) ?? null;
+    out.push(name === null ? result : { ...result, recipient: name });
+  }
+  return out;
 }
 
 function sameKey(a: ArrayBuffer, b: Uint8Array): boolean {
@@ -168,7 +197,8 @@ async function handle(
       if (privateKey === undefined) {
         return { results: request.tokens.map(() => ({ ok: false, code: "LOCKED" }) as const) };
       }
-      return { results: await decryptMany(request.tokens, privateKey, new Uint8Array(record.fpr)) };
+      const results = await decryptMany(request.tokens, privateKey, new Uint8Array(record.fpr));
+      return { results: await withRecipients(results, request.tokens) };
     }
     case "getSettings":
       return { settings: await getSettings() };
@@ -204,6 +234,10 @@ chrome.runtime.onMessage.addListener(
   },
 );
 
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "sync" && changedPeople(changes)) void broadcastPeople();
+});
+
 chrome.runtime.onStartup.addListener(() => void syncDynamicScripts());
 chrome.runtime.onInstalled.addListener(() => void syncDynamicScripts());
 chrome.permissions.onAdded.addListener(() => void syncDynamicScripts());
@@ -226,6 +260,8 @@ if (import.meta.env.VITE_E2E === "1") {
   (globalThis as Record<string, unknown>).__entzSetSettings = (patch: unknown) =>
     setSettings(patch as Parameters<typeof setSettings>[0]);
   (globalThis as Record<string, unknown>).__entzClearKey = clearKey;
+  (globalThis as Record<string, unknown>).__entzSetPeople = (people: unknown) =>
+    setPeople(people as Parameters<typeof setPeople>[0]);
   (globalThis as Record<string, unknown>).__entzGetLocal = async (key: string): Promise<unknown> =>
     (await chrome.storage.local.get(key))[key];
   (globalThis as Record<string, unknown>).__entzClearLocal = (key: string) =>
