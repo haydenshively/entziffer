@@ -121,6 +121,14 @@ describe("encrypt-json", () => {
     expect(await decryptToken(fields.note)).toBe("");
   });
 
+  it("keeps every input key, __proto__ included", async () => {
+    const result = encryptJson('{"__proto__": "p", "constructor": "c"}', "--json");
+    expect(result.status).toBe(0);
+    const entries = Object.entries(JSON.parse(result.stdout).fields) as [string, string][];
+    expect(entries.map(([key]) => key)).toEqual(["__proto__", "constructor"]);
+    expect(await Promise.all(entries.map(([, token]) => decryptToken(token)))).toEqual(["p", "c"]);
+  });
+
   it("prints one key: token line per field without --json", () => {
     const lines = encryptJson(JSON.stringify({ title: "T", body: null })).stdout.split("\n");
     expect(lines[0]?.startsWith("title: ENTZ1:")).toBe(true);

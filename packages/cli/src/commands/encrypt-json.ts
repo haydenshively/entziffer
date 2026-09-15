@@ -47,12 +47,12 @@ export async function cmdEncryptJson(args: string[]): Promise<void> {
   const cfg = readConfig(configPath);
   const recipient = await resolveRecipient(values.to, cfg, configPath);
 
-  const fields: Record<string, string | null> = {};
+  const encrypted: [string, string | null][] = [];
   for (const [key, value] of Object.entries(plain)) {
-    fields[key] = value === null ? null : await encrypt(value, recipient.key);
+    encrypted.push([key, value === null ? null : await encrypt(value, recipient.key)]);
   }
   const result: EncryptJsonOutput = {
-    fields,
+    fields: Object.fromEntries(encrypted),
     recipient: recipient.name,
     fingerprint: recipient.fingerprint,
   };
@@ -62,7 +62,7 @@ export async function cmdEncryptJson(args: string[]): Promise<void> {
     return;
   }
   out(
-    Object.entries(fields)
+    encrypted
       .map(([key, token]) => `${key}: ${token ?? ""}\n`)
       .join(""),
   );
