@@ -1,8 +1,15 @@
 {
   "name": "@entziffer/core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Zero-dependency WebCrypto core for the entziffer ENTZ1 encrypted-text format.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haydenshively/entziffer.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/haydenshively/entziffer#readme",
+  "bugs": "https://github.com/haydenshively/entziffer/issues",
   "type": "module",
   "sideEffects": false,
   "files": [

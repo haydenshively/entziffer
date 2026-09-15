@@ -66,6 +66,9 @@ tested. The extension is `private: true` and never goes to npm; the GitHub relea
 distribution channel while it is off the Chrome Web Store. A `master` push that changes no
 version publishes nothing.
 
+Both published packages must keep a `repository.url` pointing at this repo: npm verifies it
+against the provenance statement and rejects the publish with a 422 when it is missing.
+
 ### One-time setup (repository owner)
 
 - On npmjs.com, add a **trusted publisher** for both `entziffer` and `@entziffer/core`:

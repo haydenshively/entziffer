@@ -1,8 +1,15 @@
 {
   "name": "entziffer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Encrypt text to an entziffer public key (ENTZ1) for pasting into any web app.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haydenshively/entziffer.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/haydenshively/entziffer#readme",
+  "bugs": "https://github.com/haydenshively/entziffer/issues",
   "type": "module",
   "keywords": [
     "encryption",
