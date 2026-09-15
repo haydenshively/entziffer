@@ -1,11 +1,4 @@
-import {
-  b64urlDecode,
-  fingerprint,
-  formatFingerprint,
-  importPublicKey,
-  PUBLIC_KEY_PREFIX,
-  RAW_KEY_BYTES,
-} from "@entziffer/core";
+import { fingerprintOfKeyString, formatFingerprint, importPublicKey } from "@entziffer/core";
 import { type Config, emptyConfig, readConfig, requireConfig, writeConfig } from "../config.js";
 import { CliError, EXIT_UNKNOWN_RECIPIENT, usageError } from "../errors.js";
 import { json, out, warn } from "../io.js";
@@ -40,17 +33,6 @@ function unknownRecipient(name: string): CliError {
   return new CliError("E_UNKNOWN_RECIPIENT", `unknown recipient: ${name}`, EXIT_UNKNOWN_RECIPIENT);
 }
 
-/** `null` for any entry that is not a well-formed key string, so one bad row cannot hide the rest. */
-async function fingerprintOf(publicKey: string): Promise<string | null> {
-  if (!publicKey.startsWith(PUBLIC_KEY_PREFIX)) return null;
-  try {
-    const raw = b64urlDecode(publicKey.slice(PUBLIC_KEY_PREFIX.length));
-    return raw.length === RAW_KEY_BYTES ? formatFingerprint(await fingerprint(raw)) : null;
-  } catch {
-    return null;
-  }
-}
-
 async function add(
   positionals: string[],
   note: string | undefined,
@@ -80,7 +62,7 @@ async function list(positionals: string[], configPath: string, asJson: boolean):
     Object.entries(cfg.recipients).map(async ([name, entry]) => ({
       name,
       publicKey: entry.publicKey,
-      fingerprint: await fingerprintOf(entry.publicKey),
+      fingerprint: await fingerprintOfKeyString(entry.publicKey),
       note: entry.note ?? null,
       default: cfg.default === name,
     })),

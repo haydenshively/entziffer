@@ -19,7 +19,7 @@ interface Vector {
 }
 
 interface Vectors {
-  foreign: Vector & { fingerprint: string; name?: string };
+  foreign: Vector & { fingerprint: string; publicKey: string; name?: string };
   vectors: Vector[];
 }
 

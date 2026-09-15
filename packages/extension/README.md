@@ -71,7 +71,9 @@ batched round trip. Results are cached (LRU, 256 tokens) for the tab's lifetime.
   safety property of the extension: Linear's title and description are ProseMirror editors, and
   rewriting their text could persist plaintext back to Linear.
 - **Tokens encrypted to someone else** get the grey tag, and their card names the recipient's
-  fingerprint. Any other failure gets the same grey tag and a card saying so.
+  fingerprint — or, when the address book knows that fingerprint, **Encrypted for Alice ·
+  1a2b-3c4d** (see
+  [People](#people)). Any other failure gets the same grey tag and a card saying so.
 - **A locked session** makes every token answer `LOCKED`. The tags are drawn either way, so the
   page looks the same; hovering shows a **Locked · click to unlock** card, and clicking the token
   or the card sends `requestUnlock`. `LOCKED` is deliberately kept out of the LRU cache — it
@@ -149,17 +151,21 @@ enrolled under the old one.
 | `getSettings` / `setSettings` | options | the auto-lock delay below |
 | `forgetKey` | options | deletes the key record and the session; the passkey itself is untouched |
 
+`decrypt` results carry an extra `recipient` on `FPR_MISMATCH` — the address book's name for the
+token's recipient, when it has one.
+
 `decrypt` and `requestUnlock` are the only two a content script may send — `CONTENT_TYPES` in
 `src/shared/messages.ts` is the allowlist, and everything outside it is refused unless
 `sender.url` is an extension page, so a new request type is privileged until it is deliberately
 opened up. `getUnlockParams` stays separate from `getStatus` rather than merging into it: the
 stored credential id is only ever needed by the page that runs a ceremony.
 
-The service worker broadcasts two messages — to every tab with `tabs.sendMessage`, and once
+The service worker broadcasts three messages — to every tab with `tabs.sendMessage`, and once
 more with `runtime.sendMessage`, which is what reaches the options page and the popup. On
 `unlocked`, content scripts rescan and retry their tokens. On `locked`, they flip every token
 they know to the locked state in place, drop the decrypt cache, and take the card down; the
-options page and popup refresh. No reload anywhere.
+options page and popup refresh. On `people`, content scripts drop their cache and rescan, and the
+options page redraws its list. No reload anywhere.
 
 ## Sites
 
@@ -180,6 +186,24 @@ The popup learns the current tab's origin from `chrome.tabs.query({active:true,
 currentWindow:true})`, which returns a URL because opening the popup grants **`activeTab`** for
 that tab — that is why the manifest asks for `activeTab` rather than the far broader `tabs`
 permission.
+
+## People
+
+An address book of names for public keys, edited in the options page and stored in
+`chrome.storage.sync` under `people` as `[{name, publicKey}]` — public data only, synced with the
+Chrome profile, rebuilt entry by entry on read so malformed rows are dropped. Fingerprints are
+derived from the keys, never stored. Pasting the CLI's `~/.config/entziffer/config.json` into the
+key field imports every recipient it names, which is what keeps the two books agreeing.
+
+The service worker resolves the name at decrypt time and returns it as `recipient` on an
+`FPR_MISMATCH` result, so the content script never reads storage; a change to the book broadcasts
+`people`, on which open tabs drop their cache and rescan.
+
+Because everyone encrypts to their own key, "encrypted for Alice" is in practice "Alice's
+message" — but **a fingerprint is a routing hint the sender chose, not authentication**. Anyone
+can label a token with any fingerprint and four bytes collide, so the card only ever says whose a
+token is, never who it came from, and two entries sharing a fingerprint are shown joined with
+"or".
 
 ## Settings
 
@@ -206,7 +230,8 @@ tokens split across text nodes and inline elements and the `isEditable` table �
 into its tag and body, the pointer hit-testing that decides which token is hovered (the gap
 between the lines of a wrapped token included), the card's mount/show/teardown and its refusal to
 hold anything but text, the displacement map behind the glass, the dynamic script registration,
-the session lock and its alarm, the settings round trip, the message allowlist, and a lock landing
+the session lock and its alarm, the settings round trip, the address book's validation and
+fingerprint lookup, the message allowlist, and a lock landing
 while a decrypt is in flight (the reply is dropped, nothing is cached, no plaintext is shown).
 
 The Playwright suite launches `chromium.launchPersistentContext` with
@@ -258,6 +283,7 @@ scripts/build.mjs              both Vite configs (ESM pages + IIFE content scrip
 scripts/zip.mjs                release zip
 src/shared/messages.ts         typed request/response protocol
 src/shared/origins.ts          enabled sites, derived from the granted host permissions
+src/shared/people.ts           the address book: storage, validation, fingerprint lookup
 src/sw/{index,keystore,session,settings,scripts,broadcast}.ts
 src/content/{index,scan,hit,guard,highlight,pane,lens,motion,cache,shadow}.ts + styles.css
 src/options/, src/popup/, src/unlock/

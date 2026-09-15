@@ -1,4 +1,4 @@
-import type { DecryptResult, EntzifferErrorCode } from "@entziffer/core";
+import type { DecryptFailure, DecryptSuccess, EntzifferErrorCode } from "@entziffer/core";
 
 /** The only auto-lock delays the UI offers, in minutes: 1h, 4h, 12h, 24h. */
 export const AUTO_LOCK_CHOICES = [60, 240, 720, 1440] as const;
@@ -59,6 +59,12 @@ export function isPrivileged(type: RequestType): type is Exclude<RequestType, Co
   return !(CONTENT_TYPES as readonly string[]).includes(type);
 }
 
+/**
+ * A decrypt result as the service worker returns it. `recipient` is set only on an `FPR_MISMATCH`,
+ * and {@link namesByFingerprint} governs what it may be said to mean.
+ */
+export type TokenResult = DecryptSuccess | (DecryptFailure & { recipient?: string });
+
 export interface ResponseData {
   getStatus: { status: KeyStatus };
   getUnlockParams: { params: UnlockParams };
@@ -66,7 +72,7 @@ export interface ResponseData {
   setupKey: { status: KeyStatus };
   unlock: { status: KeyStatus };
   lockNow: Record<string, never>;
-  decrypt: { results: DecryptResult[] };
+  decrypt: { results: TokenResult[] };
   getSettings: { settings: Settings };
   setSettings: { settings: Settings };
   forgetKey: Record<string, never>;
@@ -87,7 +93,12 @@ export interface LockedBroadcast {
   type: "locked";
 }
 
-export type Broadcast = UnlockedBroadcast | LockedBroadcast;
+/** Broadcast when the address book changes, so open tabs re-ask about the tokens they hold. */
+export interface PeopleBroadcast {
+  type: "people";
+}
+
+export type Broadcast = UnlockedBroadcast | LockedBroadcast | PeopleBroadcast;
 
 export type Response<K extends RequestType = RequestType> =
   | { ok: true; data: ResponseData[K] }

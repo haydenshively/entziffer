@@ -1,5 +1,6 @@
 import { type Broadcast, type KeyIdentity, type KeyStatus, send } from "../shared/messages.js";
 import { type EnabledSites, enabledSites, requestOrigin, toOrigin } from "../shared/origins.js";
+import { getPeople } from "../shared/people.js";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -38,6 +39,12 @@ function renderSite(): void {
 
 $("options").addEventListener("click", () => chrome.runtime.openOptionsPage());
 
+// `openOptionsPage` takes no fragment, so the People section is reached by opening the page itself.
+$("people").addEventListener("click", async () => {
+  await chrome.tabs.create({ url: chrome.runtime.getURL("options/index.html#people") });
+  window.close();
+});
+
 // The popup closes the moment the OS passkey prompt appears, so the ceremony runs in its own window.
 $("unlock").addEventListener("click", async () => {
   await send({ type: "requestUnlock" });
@@ -69,11 +76,13 @@ $("enable-site").addEventListener("click", async () => {
 });
 
 async function init(): Promise<void> {
-  const [state, enabled, current] = await Promise.all([
+  const [state, enabled, current, people] = await Promise.all([
     send({ type: "getStatus" }),
     enabledSites(),
     currentOrigin(),
+    getPeople().catch(() => []),
   ]);
+  $("people").textContent = `People · ${people.length}`;
   if (!state.ok) {
     $("state").textContent = "The extension background worker is unavailable.";
     return;

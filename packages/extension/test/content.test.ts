@@ -202,6 +202,23 @@ describe("locking while a decrypt is in flight", () => {
     expect(mocks.send).toHaveBeenLastCalledWith({ type: "decrypt", tokens: [TOKEN] });
   });
 
+  it("re-asks for every token when the address book changes", async () => {
+    mocks.send.mockResolvedValue({ ok: true, data: { results: [{ ok: true, text: PLAINTEXT }] } });
+    await import("../src/content/index.js");
+    await flush();
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+
+    // A second scan alone asks for nothing: the cached result still answers for the token.
+    document.body.innerHTML += `<p>And again: ${TOKEN}</p>`;
+    await flush();
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+
+    broadcast({ type: "people" });
+    await flush();
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+    expect(mocks.send).toHaveBeenLastCalledWith({ type: "decrypt", tokens: [TOKEN] });
+  });
+
   it("tears itself down when the extension's context is gone", async () => {
     mocks.send.mockResolvedValue({ ok: true, data: { results: [{ ok: true, text: PLAINTEXT }] } });
     await import("../src/content/index.js");
@@ -214,6 +231,63 @@ describe("locking while a decrypt is in flight", () => {
     await flush();
     expect(mocks.send).not.toHaveBeenCalled();
     expect(mocks.showPreview).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe("a token this key cannot open", () => {
+  const FOREIGN = vectors.foreign;
+
+  const flush = async (): Promise<void> => {
+    await vi.advanceTimersByTimeAsync(200);
+  };
+
+  beforeEach(async () => {
+    vi.resetModules();
+    mocks.send.mockReset();
+    mocks.showPreview.mockReset();
+    mocks.hitEverything.value = true;
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+    vi.useFakeTimers();
+    document.body.innerHTML = `<p id="foreign">Theirs: ${FOREIGN.token}</p>`;
+    vi.stubGlobal("chrome", {
+      runtime: { id: "test-extension", onMessage: { addListener: () => undefined } },
+    });
+    mocks.send.mockResolvedValue({
+      ok: true,
+      data: { results: [{ ok: false, code: "FPR_MISMATCH", recipient: "Alice" }] },
+    });
+    await import("../src/content/index.js");
+    await flush();
+  });
+
+  afterEach(async () => {
+    mocks.send.mockReset();
+    mocks.send.mockResolvedValue({ ok: false, code: "INTERNAL", message: "context invalidated" });
+    (globalThis.chrome as { runtime: { id?: string } }).runtime.id = undefined;
+    document.body.innerHTML = `<p>Late: ${FOREIGN.token}</p>`;
+    await flush();
+    document.body.innerHTML = "";
+    await flush();
+    mocks.hitEverything.value = false;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the name the service worker gave its recipient, beside the fingerprint", () => {
+    document.getElementById("foreign")?.dispatchEvent(
+      new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 5,
+        clientY: 5,
+      }),
+    );
+    expect(mocks.showPreview.mock.lastCall?.[0]).toMatchObject({
+      reason: "foreign",
+      fingerprint: FOREIGN.fingerprint,
+      recipient: "Alice",
+    });
   });
 });
 

@@ -43,6 +43,17 @@ ephemeral key is), but deriving it costs nothing on the wire and keeps the forma
 if v2 ever reuses one ephemeral key across several recipients, where a constant nonce
 would be catastrophic.
 
+### Fingerprint
+
+`fpr` is a recipient routing hint and nothing more. It lets a reader decide "is this token for
+me?" before any key agreement, and lets a UI put a name on a token it cannot read — the CLI's
+`inspect` and the extension's address book both look the four bytes up in a local list of
+public keys. It is attacker-controlled (a sender writes whatever it likes) and, at 32 bits,
+collision-prone by construction, so it must never be treated as sender or recipient
+authentication: only a successful AEAD open proves anything. There is no sender identity in
+the format at all — encrypting needs no secret, so senders (CLI, agents) hold no key to be
+identified by.
+
 ### Marker
 
 The marker is exactly `ENTZ1:`. There is no configurable or namespaced prefix: a token that

@@ -1,4 +1,4 @@
-import { EntzifferError } from "@entziffer/core";
+import { EntzifferError, fingerprintOfKeyString, importPublicKey } from "@entziffer/core";
 import {
   type AutoLockMinutes,
   type Broadcast,
@@ -17,6 +17,7 @@ import {
   requestOrigin,
   toOrigin,
 } from "../shared/origins.js";
+import { getPeople, type Person, parseConfigRecipients, setPeople } from "../shared/people.js";
 import { createWithPrf, encodeBytes, getWithPrf } from "../shared/webauthn.js";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -24,6 +25,8 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
 let settings: Settings = DEFAULT_SETTINGS;
 let sites: EnabledSites = { allSites: false, origins: [] };
 let status: KeyStatus | null = null;
+let people: Person[] = [];
+let fingerprints = new Map<string, string>();
 
 const identity = (): KeyIdentity | null => status?.identity ?? null;
 
@@ -132,6 +135,112 @@ function renderSites(): void {
   });
 }
 
+function renderPeople(): void {
+  const list = $("people-list");
+  list.textContent = "";
+  if (people.length === 0) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "No one yet";
+    list.appendChild(li);
+    return;
+  }
+  for (const person of people) {
+    const li = document.createElement("li");
+    const who = document.createElement("span");
+    who.className = "who";
+    const name = document.createElement("span");
+    name.textContent = person.name;
+    const fpr = document.createElement("code");
+    fpr.className = "pill mono";
+    fpr.textContent = fingerprints.get(person.publicKey) ?? "…";
+    who.append(name, fpr);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "glass-button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => void forgetPerson(person));
+    li.append(who, remove);
+    list.appendChild(li);
+  }
+}
+
+async function refreshPeople(): Promise<void> {
+  people = await getPeople();
+  const pairs = await Promise.all(
+    people.map(async (p) => [p.publicKey, await fingerprintOfKeyString(p.publicKey)] as const),
+  );
+  fingerprints = new Map(pairs.filter((pair): pair is [string, string] => pair[1] !== null));
+  renderPeople();
+}
+
+/**
+ * `chrome.storage.sync` rejects on its 8KB-per-item quota, its write-rate limits and whenever sync
+ * is unavailable, so every address-book write reports rather than throws. The list is re-read from
+ * the `people` broadcast the write itself triggers, which is also how another device's write lands.
+ */
+async function save(next: Person[], done: string): Promise<void> {
+  try {
+    await setPeople(next);
+  } catch (e) {
+    say(e instanceof Error ? e.message : String(e), true);
+    return;
+  }
+  say(done);
+}
+
+async function forgetPerson(person: Person): Promise<void> {
+  await save(
+    people.filter((p) => p.publicKey !== person.publicKey),
+    "Saved.",
+  );
+}
+
+/**
+ * The key field doubles as an importer: a pasted CLI `config.json` adds every recipient it names
+ * that is not already here, which is what keeps the two address books agreeing.
+ */
+async function addPerson(): Promise<void> {
+  const nameField = $("person-name") as HTMLInputElement;
+  const keyField = $("person-key") as HTMLInputElement;
+  const known = (key: string): boolean => people.some((p) => p.publicKey === key);
+  const imported = parseConfigRecipients(keyField.value);
+  if (imported !== null) {
+    const candidates = imported.filter((p) => !known(p.publicKey));
+    const usable = await Promise.all(candidates.map((p) => fingerprintOfKeyString(p.publicKey)));
+    const fresh = candidates.filter((_, i) => usable[i] !== null);
+    const skipped = candidates.length - fresh.length;
+    if (fresh.length === 0) {
+      say("That config names no one new.", true);
+      return;
+    }
+    keyField.value = "";
+    const tail =
+      skipped === 0 ? "" : ` ${skipped} key${skipped === 1 ? "" : "s"} could not be read.`;
+    await save([...people, ...fresh], `Imported ${fresh.length} from your CLI config.${tail}`);
+    return;
+  }
+  const name = nameField.value.trim();
+  const key = keyField.value.trim();
+  if (name === "") {
+    say("Give the key a name first.", true);
+    return;
+  }
+  try {
+    await importPublicKey(key);
+  } catch (e) {
+    say(e instanceof Error ? e.message : String(e), true);
+    return;
+  }
+  if (known(key)) {
+    say("That key is already here.", true);
+    return;
+  }
+  nameField.value = "";
+  keyField.value = "";
+  await save([...people, { name, publicKey: key }], `Saved ${name}.`);
+}
+
 function renderSettings(): void {
   ($("auto-lock") as HTMLSelectElement).value = String(settings.autoLockMinutes);
 }
@@ -164,6 +273,7 @@ async function refresh(): Promise<void> {
     send({ type: "getSettings" }),
     chrome.storage.local.get(RESET_NOTICE_KEY),
     refreshSites(),
+    refreshPeople(),
   ]);
   status = state.ok ? state.data.status : null;
   if (config.ok) settings = config.data.settings;
@@ -171,6 +281,7 @@ async function refresh(): Promise<void> {
   show("reset-notice", stored[RESET_NOTICE_KEY] === true && identity() === null);
   renderIdentity();
   renderSettings();
+  if (location.hash === "#people") $("people").scrollIntoView();
 }
 
 $("setup").addEventListener("click", () => void setUp(true));
@@ -228,6 +339,10 @@ $("add-origin").addEventListener("click", async () => {
   say("Saved.");
 });
 
+$("add-person").addEventListener("click", () => {
+  void addPerson();
+});
+
 $("auto-lock").addEventListener("change", (event) => {
   const minutes = Number((event.target as HTMLSelectElement).value) as AutoLockMinutes;
   void patch({ autoLockMinutes: minutes });
@@ -252,7 +367,8 @@ $("forget").addEventListener("click", async () => {
 });
 
 chrome.runtime.onMessage.addListener((message: Broadcast) => {
-  if (message.type === "locked" || message.type === "unlocked") void refresh();
+  if (message.type === "people") void refreshPeople();
+  else if (message.type === "locked" || message.type === "unlocked") void refresh();
 });
 
 chrome.permissions.onAdded.addListener(() => void refreshSites());

@@ -17,8 +17,10 @@ import {
   type Response,
   type ResponseData,
 } from "../shared/messages.js";
-import { broadcastUnlocked } from "./broadcast.js";
+import { changedPeople, setPeople } from "../shared/people.js";
+import { broadcastPeople, broadcastUnlocked } from "./broadcast.js";
 import { clearKey, type KeyRecord, readKey, readSession, writeKey } from "./keystore.js";
+import { withRecipients } from "./recipients.js";
 import { syncDynamicScripts } from "./scripts.js";
 import {
   installSessionListeners,
@@ -168,7 +170,8 @@ async function handle(
       if (privateKey === undefined) {
         return { results: request.tokens.map(() => ({ ok: false, code: "LOCKED" }) as const) };
       }
-      return { results: await decryptMany(request.tokens, privateKey, new Uint8Array(record.fpr)) };
+      const results = await decryptMany(request.tokens, privateKey, new Uint8Array(record.fpr));
+      return { results: await withRecipients(results, request.tokens) };
     }
     case "getSettings":
       return { settings: await getSettings() };
@@ -204,6 +207,10 @@ chrome.runtime.onMessage.addListener(
   },
 );
 
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "sync" && changedPeople(changes)) void broadcastPeople();
+});
+
 chrome.runtime.onStartup.addListener(() => void syncDynamicScripts());
 chrome.runtime.onInstalled.addListener(() => void syncDynamicScripts());
 chrome.permissions.onAdded.addListener(() => void syncDynamicScripts());
@@ -226,6 +233,8 @@ if (import.meta.env.VITE_E2E === "1") {
   (globalThis as Record<string, unknown>).__entzSetSettings = (patch: unknown) =>
     setSettings(patch as Parameters<typeof setSettings>[0]);
   (globalThis as Record<string, unknown>).__entzClearKey = clearKey;
+  (globalThis as Record<string, unknown>).__entzSetPeople = (people: unknown) =>
+    setPeople(people as Parameters<typeof setPeople>[0]);
   (globalThis as Record<string, unknown>).__entzGetLocal = async (key: string): Promise<unknown> =>
     (await chrome.storage.local.get(key))[key];
   (globalThis as Record<string, unknown>).__entzClearLocal = (key: string) =>

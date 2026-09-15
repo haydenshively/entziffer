@@ -1,5 +1,5 @@
 import { formatFingerprint, MARKER, parseEnvelope } from "@entziffer/core";
-import { type Broadcast, send } from "../shared/messages.js";
+import { type Broadcast, send, type TokenResult } from "../shared/messages.js";
 import { createLru } from "./cache.js";
 import { installGuard } from "./guard.js";
 import { allLayers, dimLayer, foreignLayer, type HighlightLayer, tagLayer } from "./highlight.js";
@@ -24,7 +24,7 @@ const DEBOUNCE_MS = 100;
 const CACHE_LIMIT = 256;
 const MAX_ROOTS = 32;
 
-type CacheEntry = { ok: true; text: string } | { ok: false; code: string };
+type CacheEntry = TokenResult;
 
 const LOCKED: CacheEntry = { ok: false, code: "LOCKED" };
 
@@ -146,8 +146,14 @@ function toPreview(k: Known): Preview {
   const base = { key: k.key, typography: k.typography };
   if (locked) return { ...base, reason: "locked" };
   if (k.result.ok) return { ...base, text: k.result.text };
-  if (k.result.code === "FPR_MISMATCH")
-    return { ...base, reason: "foreign", fingerprint: fingerprintOf(k.loc.token) };
+  if (k.result.code === "FPR_MISMATCH") {
+    return {
+      ...base,
+      reason: "foreign",
+      fingerprint: fingerprintOf(k.loc.token),
+      recipient: k.result.recipient ?? null,
+    };
+  }
   return { ...base, reason: "broken" };
 }
 
@@ -487,6 +493,12 @@ chrome.runtime.onMessage.addListener((message: Broadcast) => {
   if (message.type === "unlocked") {
     generation++;
     locked = false;
+    schedule(document.body);
+    return;
+  }
+  if (message.type === "people") {
+    generation++;
+    cache.clear();
     schedule(document.body);
     return;
   }
