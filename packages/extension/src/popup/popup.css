@@ -2,11 +2,17 @@
 
 body {
   width: 336px;
-  padding: 8px;
+  padding: 0;
 }
 
 .panel {
-  padding: 15px 15px 13px;
+  padding: 16px 16px 14px;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.panel::before {
+  display: none;
 }
 
 .head {

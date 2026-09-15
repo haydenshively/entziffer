@@ -9,8 +9,10 @@ PRF extension), Node 22 or newer.
 
 ## 1. Chrome extension
 
-The extension is distributed as an unpacked build attached to each GitHub release; it is
-not in the Chrome Web Store.
+The extension is not in the Chrome Web Store. It is loaded unpacked, either from the zip
+attached to a GitHub release or from a build of this repo.
+
+**From a release:**
 
 1. Download `entziffer-extension-<version>.zip` from the
    [latest release](https://github.com/haydenshively/entziffer/releases/latest).
@@ -22,12 +24,17 @@ not in the Chrome Web Store.
 5. Confirm the version in `chrome://extensions` matches the release you downloaded, and that
    the **ID** reads `bgopgffcljkdlogpflimomjbfbmbaoap`.
 
-Building it yourself instead:
+**From source** (Node 22+, pnpm 10):
 
 ```sh
-pnpm install && pnpm --filter @entziffer/extension build
-# load packages/extension/dist as the unpacked extension
+git clone https://github.com/haydenshively/entziffer.git && cd entziffer
+corepack enable && pnpm install
+pnpm build
 ```
+
+Then follow steps 3–5 above, selecting `packages/extension/dist` as the folder. `pnpm build`
+builds every package; building only the extension skips `@entziffer/core`, whose `dist` the
+extension bundles. Rebuild and press reload on the extension card to pick up changes.
 
 ### Your extension ID must be `bgopgffcljkdlogpflimomjbfbmbaoap`
 
