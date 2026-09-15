@@ -1,0 +1,39 @@
+:root {
+  color-scheme: light dark;
+}
+body {
+  font:
+    15px / 1.6 system-ui,
+    sans-serif;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+}
+main {
+  max-width: 34ch;
+  padding: 24px;
+  text-align: center;
+}
+h1 {
+  font-size: 1.2rem;
+  margin: 0 0 8px;
+}
+.muted {
+  opacity: 0.75;
+}
+.small {
+  font-size: 0.85em;
+}
+[data-error] {
+  color: #b3261e;
+  opacity: 1;
+}
+button.primary {
+  font: inherit;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid currentColor;
+  background: transparent;
+  cursor: pointer;
+}

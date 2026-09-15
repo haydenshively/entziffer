@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["chrome", "vite/client"]
+  },
+  "include": ["src", "test", "scripts", "vitest.config.ts", "playwright.config.ts"]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "@entziffer/reference",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Dependency-free single-file reference implementation of the ENTZ1 wire format.",
+  "scripts": {
+    "test": "vitest run",
+    "vectors": "node encrypt.mjs --vectors"
+  },
+  "devDependencies": {
+    "@entziffer/core": "workspace:^",
+    "vitest": "5.0.0"
+  }
+}

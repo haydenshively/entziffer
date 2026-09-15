@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>entziffer settings</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>entziffer</h1>
+        <p class="muted">
+          Your private key is derived from your passkey every time you unlock. It is never kept
+          between sessions: locking, auto-lock, or quitting Chrome deletes it.
+        </p>
+      </header>
+
+      <p id="reset-notice" class="warn" hidden>
+        Key storage was reset by this update: entziffer no longer keeps a private key on disk. Set
+        up your passkey again below.
+      </p>
+
+      <section id="onboarding" hidden>
+        <h2>Get started</h2>
+        <p>
+          One passkey is your whole identity. entziffer asks it for a secret value (the WebAuthn PRF
+          extension) and derives the same X25519 key from it every time, so any Mac signed into the
+          same iCloud account regenerates this key with one Touch ID.
+        </p>
+        <div class="row">
+          <button id="setup" class="primary" type="button">Set up with Touch ID</button>
+          <button id="recover" type="button">I already have an entziffer passkey</button>
+        </div>
+        <p class="warn">
+          Deleting that passkey from iCloud Keychain — or losing the Apple account it lives in —
+          makes every issue encrypted to this key unreadable forever. There is no backup and no
+          export.
+        </p>
+        <p class="muted">
+          Requires macOS 15 or later, Chrome 133 or later, and a passkey provider that supports the
+          PRF extension (iCloud Keychain).
+        </p>
+      </section>
+
+      <section id="identity" hidden>
+        <h2>Your key</h2>
+        <dl>
+          <dt>Fingerprint</dt>
+          <dd><code id="fingerprint"></code></dd>
+          <dt>Public key</dt>
+          <dd class="row">
+            <code id="public-key" class="wrap"></code>
+            <button id="copy-public" type="button">Copy</button>
+          </dd>
+        </dl>
+        <p class="muted">Register it with the CLI on any machine that creates issues:</p>
+        <pre class="row"><code id="cli-snippet"></code><button id="copy-cli" type="button">Copy</button></pre>
+        <p id="key-state" class="muted">Checking…</p>
+        <div class="row">
+          <button id="unlock" type="button" hidden>Unlock</button>
+          <button id="lock" type="button" hidden>Lock now</button>
+        </div>
+        <label class="wide">Auto-lock after
+          <select id="auto-lock">
+            <option value="60">1 hour</option>
+            <option value="240">4 hours</option>
+            <option value="720">12 hours</option>
+            <option value="1440">24 hours</option>
+          </select>
+        </label>
+      </section>
+
+      <section id="sites">
+        <h2>Sites</h2>
+        <p class="muted">
+          entziffer runs nowhere until you enable a site. Adding one asks Chrome for permission
+          on that origin and nothing else. If you file issues in Linear, add
+          <code>https://linear.app</code> first.
+        </p>
+        <div class="row">
+          <input id="add-origin-input" type="text" placeholder="https://example.com" spellcheck="false" />
+          <button id="add-origin" type="button">Enable site</button>
+        </div>
+        <ul id="enabled-list" class="list"></ul>
+        <label class="check">
+          <input id="all-sites" type="checkbox" />
+          Enable on all sites
+        </label>
+      </section>
+
+      <section id="advanced">
+        <h2>Advanced</h2>
+        <label class="check">
+          <input id="overlay-only" type="checkbox" />
+          Overlay-only mode (never modify page text)
+        </label>
+      </section>
+
+      <section id="danger">
+        <h2>Danger zone</h2>
+        <p class="muted">
+          Type the fingerprint <code id="danger-fpr">—</code> to forget this key. Only this
+          browser's copy of the public data goes away: the passkey stays in iCloud Keychain (remove
+          it in the Passwords app), and setting up again with the same passkey gives you the same
+          key back.
+        </p>
+        <div class="row">
+          <input id="forget-confirm" type="text" placeholder="0000-0000" spellcheck="false" />
+          <button id="forget" class="danger" type="button">Forget key</button>
+        </div>
+      </section>
+
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

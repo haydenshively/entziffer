@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm -r build
+      - run: pnpm test
+      # A release that has not been driven through a real Chrome is not a release.
+      - run: npx playwright install --with-deps chromium
+      - run: pnpm --filter @entziffer/extension test:e2e
+
+      - run: pnpm --filter @entziffer/extension zip
+      - id: zip
+        run: |
+          path="$(ls packages/extension/entziffer-extension-*.zip | head -n1)"
+          test -n "$path"
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.zip.outputs.path }}
+          generate_release_notes: true
+
+      # `pnpm publish -r` rewrites the `workspace:` protocol in dependencies to real
+      # version ranges; `npm publish` would ship an uninstallable package.
+      - run: pnpm publish -r --access public --provenance --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

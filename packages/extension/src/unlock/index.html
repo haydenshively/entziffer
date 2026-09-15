@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Unlock entziffer</title>
+    <link rel="stylesheet" href="./unlock.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Unlock entziffer</h1>
+      <p id="state" class="muted">Waiting for your passkey…</p>
+      <button id="retry" class="primary" type="button" hidden>Use passkey</button>
+      <p class="muted small">
+        entziffer stores no private key. Touch ID re-derives it for this browser session only.
+      </p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

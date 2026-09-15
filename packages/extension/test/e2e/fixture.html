@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>entziffer fixture</title>
+    <style>
+      body { font: 15px/1.6 system-ui, sans-serif; margin: 24px; max-width: 760px; }
+      .row { padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; margin: 10px 0; }
+      .ProseMirror { padding: 8px 10px; border: 2px solid #6a7; border-radius: 6px; }
+      #editable-narrow { width: 220px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    </style>
+  </head>
+  <body>
+    <h1>entziffer fixture</h1>
+
+    <p id="para">Heads up: __TOKEN_ascii-title__ — please review today.</p>
+
+    <div id="row" class="row">__TOKEN_with-newline__</div>
+
+    <div id="editable" class="ProseMirror" contenteditable="true">
+      <p id="editable-para">Draft: __TOKEN_ascii-title__ (still editing)</p>
+    </div>
+
+    <div id="editable-narrow" class="ProseMirror" contenteditable="true">
+      <p id="editable-multiline">__TOKEN_title-60__</p>
+    </div>
+
+    <p id="foreign">Someone else's: __TOKEN_foreign__</p>
+
+    <div id="dynamic"></div>
+    <button id="insert" type="button">Insert token</button>
+
+    <script>
+      document.getElementById("insert").addEventListener("click", () => {
+        const p = document.createElement("p");
+        p.id = "dynamic-para";
+        p.textContent = "Late arrival: __TOKEN_ascii-title__ ok";
+        document.getElementById("dynamic").appendChild(p);
+      });
+    </script>
+  </body>
+</html>
