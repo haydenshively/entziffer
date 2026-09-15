@@ -61,9 +61,5 @@ export async function cmdEncryptJson(args: string[]): Promise<void> {
     json(result);
     return;
   }
-  out(
-    encrypted
-      .map(([key, token]) => `${key}: ${token ?? ""}\n`)
-      .join(""),
-  );
+  out(encrypted.map(([key, token]) => `${key}: ${token ?? ""}\n`).join(""));
 }
