@@ -82,7 +82,7 @@ describe("encrypt", () => {
     expect(run(["encrypt", "x", "--config", "/nonexistent/c.json"]).status).toBe(3);
     expect(run(["bogus"]).status).toBe(2);
     expect(run(["--version"]).status).toBe(0);
-    expect(run(["--help"]).stdout).toContain("entziffer encrypt-issue");
+    expect(run(["--help"]).stdout).toContain("entziffer encrypt-json");
   });
 
   it("reports errors as JSON on stdout and text on stderr", () => {
@@ -94,88 +94,44 @@ describe("encrypt", () => {
   });
 });
 
-describe("encrypt-issue", () => {
-  it("emits the JSON contract used by the skill", async () => {
-    const result = run(["encrypt-issue", "--title", "Candid title", "--config", config, "--json"], {
-      input: "",
-    });
+describe("encrypt-json", () => {
+  const encryptJson = (input: string, ...args: string[]) =>
+    run(["encrypt-json", ...args, "--config", config], { input });
+
+  it("emits the stable JSON contract, one token per field", async () => {
+    const result = encryptJson(
+      `${JSON.stringify({ title: "Candid title", body: "# Notes\n\nfrom a DM" })}\n`,
+      "--json",
+    );
     expect(result.status).toBe(0);
     const parsed = JSON.parse(result.stdout);
-    expect(Object.keys(parsed)).toEqual(["title", "description", "recipient", "fingerprint"]);
-    expect(parsed.description).toBeNull();
+    expect(Object.keys(parsed)).toEqual(["fields", "recipient", "fingerprint"]);
+    expect(Object.keys(parsed.fields)).toEqual(["title", "body"]);
     expect(parsed.recipient).toBe("me");
     expect(parsed.fingerprint).toBe(RECIPIENT_FPR);
-    expect(await decryptToken(parsed.title)).toBe("Candid title");
+    expect(await decryptToken(parsed.fields.title)).toBe("Candid title");
+    expect(await decryptToken(parsed.fields.body)).toBe("# Notes\n\nfrom a DM");
   });
 
-  it("encrypts a body from --body and from --body-stdin", async () => {
-    const inline = JSON.parse(
-      withConfig("encrypt-issue", "--title", "T", "--body", "B", "--json").stdout,
-    );
-    expect(await decryptToken(inline.description)).toBe("B");
-
-    const piped = run(
-      ["encrypt-issue", "--title", "T", "--body-stdin", "--config", config, "--json"],
-      {
-        input: "# Notes\n\nfrom a DM\n",
-      },
-    );
-    expect(await decryptToken(JSON.parse(piped.stdout).description)).toBe("# Notes\n\nfrom a DM");
+  it("passes null fields through and encrypts empty strings", async () => {
+    const result = encryptJson(JSON.stringify({ title: "T", body: null, note: "" }), "--json");
+    expect(result.status).toBe(0);
+    const { fields } = JSON.parse(result.stdout);
+    expect(fields.body).toBeNull();
+    expect(await decryptToken(fields.note)).toBe("");
   });
 
-  it("prints title and description lines without --json", () => {
-    const lines = withConfig("encrypt-issue", "--title", "T", "--body", "B").stdout.split("\n");
+  it("prints one key: token line per field without --json", () => {
+    const lines = encryptJson(JSON.stringify({ title: "T", body: null })).stdout.split("\n");
     expect(lines[0]?.startsWith("title: ENTZ1:")).toBe(true);
-    expect(lines[1]?.startsWith("description: ENTZ1:")).toBe(true);
+    expect(lines[1]).toBe("body: ");
   });
 
-  it("takes the whole issue from stdin JSON, keeping plaintext out of argv", async () => {
-    const result = run(["encrypt-issue", "--stdin-json", "--config", config, "--json"], {
-      input: `${JSON.stringify({ title: "Candid title", body: "# Notes\n\nfrom a DM" })}\n`,
-    });
-    expect(result.status).toBe(0);
-    const parsed = JSON.parse(result.stdout);
-    expect(Object.keys(parsed)).toEqual(["title", "description", "recipient", "fingerprint"]);
-    expect(await decryptToken(parsed.title)).toBe("Candid title");
-    expect(await decryptToken(parsed.description)).toBe("# Notes\n\nfrom a DM");
-  });
-
-  it("treats a missing stdin-json body as no description", () => {
-    const result = run(["encrypt-issue", "--stdin-json", "--config", config, "--json"], {
-      input: JSON.stringify({ title: "T" }),
-    });
-    expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout).description).toBeNull();
-  });
-
-  it("rejects stdin-json combined with the flag inputs, and bad payloads", () => {
-    for (const args of [
-      ["--stdin-json", "--title", "T"],
-      ["--stdin-json", "--body", "B"],
-      ["--stdin-json", "--body-stdin"],
-    ]) {
-      const result = run(["encrypt-issue", ...args, "--config", config], {
-        input: JSON.stringify({ title: "T" }),
-      });
-      expect(result.status).toBe(2);
-      expect(result.stderr).toContain("--stdin-json");
+  it("rejects bad payloads with a usage error and empty stdin with exit 6", () => {
+    for (const input of ["not json", '["title"]', "{}", '{"title":7}', '{"a":{"b":"c"}}']) {
+      expect(encryptJson(input).status).toBe(2);
     }
-    for (const input of ["not json", '["title"]', "{}", '{"title":""}', '{"title":"T","body":7}']) {
-      expect(run(["encrypt-issue", "--stdin-json", "--config", config], { input }).status).toBe(2);
-    }
-    expect(run(["encrypt-issue", "--stdin-json", "--config", config], { input: "" }).status).toBe(
-      6,
-    );
-  });
-
-  it("requires --title and rejects both body sources", () => {
-    expect(withConfig("encrypt-issue").status).toBe(2);
-    expect(withConfig("encrypt-issue", "--title", "T", "--body", "B", "--body-stdin").status).toBe(
-      2,
-    );
-    expect(
-      run(["encrypt-issue", "--title", "T", "--body-stdin", "--config", config], { input: "" })
-        .status,
-    ).toBe(6);
+    expect(encryptJson('{"title":"T"}', "extra").status).toBe(2);
+    expect(encryptJson("").status).toBe(6);
   });
 });

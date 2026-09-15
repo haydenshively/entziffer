@@ -9,7 +9,7 @@ describe("findTokens", () => {
     ["mid-sentence", `see ${T} for details`, [T]],
     ["trailing period", `see ${T}.`, [T]],
     ["trailing comma and paren", `(${T}), ok`, [T]],
-    ["markdown link text", `[${T}](https://linear.app/x)`, [T]],
+    ["markdown link text", `[${T}](https://example.com/x)`, [T]],
     ["multiple", `${T} and ${T}`, [T, T]],
     ["a prefix is not part of the token", `hs.${T}`, [T]],
     ["no body", "ENTZ1:", []],

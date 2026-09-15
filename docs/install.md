@@ -1,8 +1,7 @@
 # Installing entziffer
 
-Three pieces, in this order: the **extension** (derives your private key from a passkey), the
-**CLI** (the encryptor), and the **skill** (teaches Claude Code to use both). Budget five
-minutes.
+Two pieces, in this order: the **extension** (derives your private key from a passkey) and the
+**CLI** (the encryptor). Budget five minutes.
 
 Requirements: macOS 15 or newer, Chrome 133 or newer (X25519 in WebCrypto and the WebAuthn
 PRF extension), Node 22 or newer.
@@ -49,8 +48,9 @@ the release rather than enrolling a passkey.
 
 A fresh install has **no host access at all** and runs on no page until you say so. On the
 options page, under **Sites**, type an origin and click **Enable site**: Chrome asks for
-permission on that origin, and the content script is registered for it. If you file issues in
-Linear, add `https://linear.app` first. **Enable on all sites** requests `<all_urls>` instead,
+permission on that origin, and the content script is registered for it — `https://linear.app`
+for Linear, `https://github.com` for GitHub, and so on. **Enable on all sites** requests
+`<all_urls>` instead,
 and the popup offers **Enable on this site** for whatever tab you are looking at. Removing a
 site from the list hands the permission back.
 
@@ -83,12 +83,12 @@ keep working untouched.
 ### The passkey is the key
 
 Deleting that passkey from iCloud Keychain — or losing the Apple account that syncs it —
-makes every issue encrypted to it unreadable forever. There is no backup file, no export, and
+makes everything encrypted to it unreadable forever. There is no backup file, no export, and
 no escrow.
 
 The passkey is also provider-bound: PRF output belongs to the credential, so a passkey
 re-created in a different provider derives a *different* key. Switching providers means a new
-identity and re-encrypting existing issues, which entziffer does not do for you.
+identity and re-encrypting existing data, which entziffer does not do for you.
 
 ### The People address book
 
@@ -149,7 +149,7 @@ npx entziffer@latest --version
 
 Prefer it on `PATH`? `pnpm add -g entziffer` (or `npm i -g entziffer`). Every command below
 works either way. `@latest` re-resolves the newest publication on every call: convenient now,
-but once v0.1.0 is out, pin a version you have reviewed (`npx entziffer@0.1.x`) or install it
+but pin a version you have reviewed (`npx entziffer@0.2.x`) or install it
 globally, so a future publication cannot change what your agent runs.
 
 Register the public key from step 1 and make it the default recipient. Compare the whole
@@ -186,30 +186,7 @@ key in `keys list`, and `unknown` (`null` in `--json`) when it matches nothing.
 Only public keys live here; the file contains no secrets, but keep it `0600` anyway so
 nothing silently swaps a recipient on you. Unknown keys are ignored with a warning on stderr.
 
-## 3. Claude Code skill
-
-Global — available in every repo on this machine:
-
-```sh
-cp -R skills/private-linear-issue ~/.claude/skills/
-```
-
-Per repo — commit it so your team gets it:
-
-```sh
-mkdir -p .claude/skills
-cp -R /path/to/entziffer/skills/private-linear-issue .claude/skills/
-```
-
-Copy vs symlink: **copy** if the skill should keep working when this checkout moves or
-disappears, and if you want it pinned to a reviewed version. **Symlink**
-(`ln -s "$PWD/skills/private-linear-issue" ~/.claude/skills/private-linear-issue`) if you
-are developing entziffer and want edits to take effect immediately; Claude Code follows
-symlinks. Do not symlink a skill into a repo you push — teammates get a dangling link.
-
-The skill needs the Linear MCP server connected in the same session (`/mcp` to check).
-
-## 4. Verify the whole chain
+## 3. Verify the whole chain
 
 ```sh
 # 1. CLI encrypts to your key
@@ -219,14 +196,13 @@ npx entziffer@latest encrypt --to me "hello from entziffer"
 # 2. The envelope names your fingerprint, without decrypting anything
 npx entziffer@latest inspect "ENTZ1:..."
 
-# 3. The extension decrypts it: paste the token into any Linear issue comment box
-#    preview, or a Linear issue you own, hover the token, and confirm the plaintext appears.
+# 3. The extension decrypts it: paste the token into any field on a site you enabled — a
+#    comment box preview, a doc, an issue you own — hover the token, and confirm the
+#    plaintext appears. In a browser without the extension the same field shows ENTZ1:…
 ```
 
-Then the end-to-end test: ask Claude Code *"file a private Linear issue titled 'entziffer
-smoke test' saying it worked"*. You should get an issue URL; opening it in Chrome should
-show the plaintext when you hover it, and opening it in a browser without the extension (or
-asking a teammate) should show `ENTZ1:…`.
+For an agent filing an encrypted issue end to end, see the
+[Linear example](../README.md#example-private-linear-issues) in the README.
 
 If step 3 shows no plaintext in Chrome:
 

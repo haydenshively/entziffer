@@ -1,6 +1,7 @@
 # entziffer
 
-Encrypt text — Linear issue titles and descriptions in particular — to an entziffer public key.
+Encrypt text — an issue title and description, a wiki paragraph, a chat message — to an entziffer
+public key.
 The CLI only ever *encrypts*; the private key lives exclusively in the
 [entziffer Chrome extension](https://github.com/haydenshively/entziffer), which decrypts matching
 `ENTZ1:` tokens in place on the sites you enable there. There is no `keygen` and no `decrypt` here, by
@@ -26,16 +27,16 @@ npm i -g entziffer              # or install the binary
    ```
 
    The first key you add becomes the default recipient.
-3. Encrypt an issue:
+3. Encrypt some fields:
 
    ```sh
-   entziffer encrypt-issue --stdin-json --json <<'JSON'
+   entziffer encrypt-json --json <<'JSON'
    {"title": "Reword the pricing page", "body": "…"}
    JSON
    ```
 
-   Create the Linear issue with the returned strings. Linear stores ciphertext; the extension shows
-   you the plaintext.
+   Put the returned strings into the fields of whatever tool you use — a Linear or GitHub issue,
+   say. The service stores ciphertext; the extension shows you the plaintext.
 
 ## Commands
 
@@ -53,35 +54,32 @@ With `--json`:
 { "token": "ENTZ1:…", "recipient": "me", "fingerprint": "3697-8b57" }
 ```
 
-### `encrypt-issue --stdin-json [--to <r>] [--json]`
+### `encrypt-json [--to <name|entz1pk_...>] [--json]`
 
-Encrypts a title and an optional body as two independent tokens. This is the one call the
-`private-linear-issue` skill makes.
-
-`--stdin-json` reads the whole issue from standard input as `{"title": string, "body"?: string}`,
-so no plaintext ever appears in `argv` — where it would be visible to every process listing on the
-machine, and to shell history. Prefer it over `--title`/`--body`/`--body-stdin`, which remain for
-interactive use and cannot be combined with it:
+Encrypts several fields in one call, each to its own independent token — the shape an agent needs
+when it fills in a form or files a record on your behalf. Input is always standard input, so no
+plaintext ever appears in `argv`, where it would be visible to every process listing on the machine
+and to shell history. It must be a one-level JSON object whose values are strings or `null`:
 
 ```sh
-entziffer encrypt-issue --stdin-json --json <<'JSON'
-{"title": "Reword the pricing page", "body": "# Notes\n\nfrom a DM"}
+entziffer encrypt-json --json <<'JSON'
+{"title": "Reword the pricing page", "body": "# Notes\n\nfrom a DM", "footnote": null}
 JSON
 ```
 
-The `--json` shape is a stable contract:
+The `--json` shape is a stable contract; `fields` keeps the input's keys and order:
 
 ```json
 {
-  "title": "ENTZ1:…",
-  "description": "ENTZ1:…",
+  "fields": { "title": "ENTZ1:…", "body": "ENTZ1:…", "footnote": null },
   "recipient": "me",
   "fingerprint": "3697-8b57"
 }
 ```
 
-`description` is `null` when no body was given (`body` absent, `null`, or `""`), and `recipient` is `"literal"` when `--to` was a raw
-`entz1pk_…` key. Without `--json` the command prints a `title:` line and a `description:` line.
+A `null` value passes through as `null`; an empty string is encrypted like any other. `recipient`
+is `"literal"` when `--to` was a raw `entz1pk_…` key. Without `--json` the command prints one
+`<key>: <token>` line per field. Nested objects, arrays, and numbers are a usage error.
 
 ### `keys add <name> <entz1pk_...> [--note <s>] [--default]`
 
@@ -138,7 +136,7 @@ Global options: `--config <path>`, `--quiet` (suppress warnings and confirmation
 | 3 | config missing, invalid, or without a default recipient |
 | 4 | unknown recipient name |
 | 5 | crypto or token failure (bad key string, malformed token) |
-| 6 | `--stdin` / `--body-stdin` / `--stdin-json` received nothing |
+| 6 | `--stdin` or `encrypt-json` received nothing |
 
 Errors always go to stderr as `entziffer: <message>`. With `--json` the same failure is additionally
 printed to stdout:
@@ -151,4 +149,5 @@ printed to stdout:
 
 Encryption needs no secret, so agents and CI can encrypt freely. What is *not* protected: issue
 metadata (author, timestamps, project, labels), the fact that an issue exists, and its size.
-Encrypted titles are also unsearchable and unsortable in Linear. See `SECURITY.md` in the repository.
+Encrypted titles are also unsearchable and unsortable in the host application. See `SECURITY.md` in
+the repository.

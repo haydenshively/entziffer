@@ -4,7 +4,7 @@
 //
 // This file exists to be *audited*, not to be fast or clever. It depends on nothing but
 // Node's standard library, so you can read it top to bottom, compare it against
-// docs/format.md, and satisfy yourself that the ciphertext an agent pastes into Linear is
+// docs/format.md, and satisfy yourself that the ciphertext an agent pastes into a web app is
 // exactly what it claims to be. It is byte-for-byte identical to `@entziffer/core`:
 // `node encrypt.mjs --vectors` re-derives every published test vector.
 //

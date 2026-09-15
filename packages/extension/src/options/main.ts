@@ -327,7 +327,7 @@ $("add-origin").addEventListener("click", async () => {
   const field = $("add-origin-input") as HTMLInputElement;
   const origin = toOrigin(field.value);
   if (origin === null) {
-    say("Enter an http(s) origin, e.g. https://linear.app", true);
+    say("Enter an http(s) origin, e.g. https://app.example.com", true);
     return;
   }
   if (!(await requestOrigin(origin))) {
