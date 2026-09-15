@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "entziffer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Decrypts ENTZ1 tokens on the sites you enable, using a key that never leaves this browser.",
   "minimum_chrome_version": "133",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjZCQO/oj8qAXNB+/l/KXu1EgEugyyp2yhoPRwW5uPuGOnkAFtxOZ64JNTDQA9zIKDyktWUE6s05xEpzSX2Yw1wQIkZgwsm4ickUszUObfrQ+B4mSq2DChj/DNfI47RgJFqXwGU0hjCxAB2QtzBajfQ0O9slFoGw4wJL6vjSTuP+9Eslm8Vo8+VNkKDxOKqPEIoN/abVgMuaa7b46QSPEPaixf34lynxssJYSJ5j3Ir0OhY+HQWsxA3GiGHyb51+XnyjiId+0QTBdpUrZzy5OOXlwdMnJycllk/AU0i8A9Xg2HFBSe/gDxhZZ+zdkGJTlActhLhSLXvNZGjpe/0r+owIDAQAB",

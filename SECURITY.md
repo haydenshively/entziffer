@@ -8,37 +8,38 @@ entziffer is pre-1.0. Only the latest tagged release gets fixes.
 
 Report privately through GitHub's
 [private vulnerability reporting](https://github.com/haydenshively/entziffer/security/advisories/new)
-for this repository. **Do not open a public issue, and do not file it as an encrypted
-Linear issue.**
+for this repository. **Do not open a public issue.**
 
 Please include the affected component (`@entziffer/core`, `entziffer` CLI, the Chrome
 extension, or `reference/encrypt.mjs`), the version or commit, and enough detail to
 reproduce. Expect an acknowledgement within a week. There is no bug bounty.
 
 Findings that let an attacker read plaintext without the private key, recover the private
-key, or trick the extension into writing plaintext back into a Linear field are the ones
+key, or trick the extension into writing plaintext back into a page's editor are the ones
 worth reporting most urgently.
 
 ## What entziffer protects
 
-The **content** of a Linear issue's title and description, against everyone with access to
-Linear — teammates, workspace admins, integrations, and Linear itself. Encryption is
+The **content** of the text you encrypt — an issue title, a description, a paragraph in a doc —
+against everyone with access to the host application: teammates, workspace admins,
+integrations, and the vendor itself. Encryption is
 X25519 + HKDF-SHA256 + AES-256-GCM, done on your machine before anything is sent.
 
 ## What it does not protect
 
-- **Metadata.** That the issue exists, who filed it, when, its team, project, labels,
-  status, assignee, and comments are all plaintext in Linear.
+- **Metadata.** That the record exists, who created it, when, and every field you did not
+  encrypt — team, project, labels, status, assignee, comments — are plaintext in the host
+  application.
 - **Length.** Ciphertext is 53 bytes longer than the UTF-8 plaintext, so the size of what
   you wrote is visible.
 - **Comments**, unless you encrypt each one deliberately.
 - **Your machine.** A compromised Chrome profile, a malicious extension, or malware can
   read every plaintext while the session is unlocked, because the extension's job is to
   display it. Locking narrows that window (see below); it does not close it.
-- **Old issues after a key compromise.** There is no forward secrecy for the long-term
+- **Old data after a key compromise.** There is no forward secrecy for the long-term
   recipient key: whoever gets that key can read everything ever encrypted to it.
 - **Authorship.** Tokens are encrypted but not signed; anyone with your public key can
-  create an issue that decrypts for you.
+  create a token that decrypts for you.
 
 ## Where the private key lives
 
@@ -65,7 +66,7 @@ precisely:
 ## Losing the passkey means permanent data loss
 
 The passkey is the key. There is no backup blob, no export, and no escrow: deleting the
-passkey from iCloud Keychain, or losing the Apple account that syncs it, makes every issue
+passkey from iCloud Keychain, or losing the Apple account that syncs it, makes everything
 encrypted to that key unreadable forever. A new Mac on the same iCloud account recovers the
 key with one Touch ID. Moving to a different passkey provider does not — it yields a
 different key.

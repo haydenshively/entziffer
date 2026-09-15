@@ -1,6 +1,6 @@
 {
   "name": "@entziffer/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Zero-dependency WebCrypto core for the entziffer ENTZ1 encrypted-text format.",
   "license": "MIT",
   "type": "module",

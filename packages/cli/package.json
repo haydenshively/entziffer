@@ -1,12 +1,11 @@
 {
   "name": "entziffer",
-  "version": "0.1.0",
-  "description": "Encrypt Linear issue titles and descriptions to an entziffer public key (ENTZ1).",
+  "version": "0.2.0",
+  "description": "Encrypt text to an entziffer public key (ENTZ1) for pasting into any web app.",
   "license": "MIT",
   "type": "module",
   "keywords": [
     "encryption",
-    "linear",
     "x25519",
     "cli",
     "entziffer"

@@ -27,7 +27,7 @@ Then in Chrome:
 3. Enable an origin, set up the passkey, and register the public key with the CLI —
    [../../docs/install.md](../../docs/install.md) walks through all three. The extension has
    no host access until you enable an origin, and **the passkey *is* the key**: delete it from
-   iCloud Keychain and every issue encrypted to it is unreadable forever.
+   iCloud Keychain and everything encrypted to it is unreadable forever.
 
 ### Dev loop
 
@@ -72,8 +72,8 @@ batched round trip. Results are cached (LRU, 256 tokens) for the tab's lifetime.
   through. Selecting and copying are left alone. A token counts as editable — and so is guarded —
   when either endpoint of its range, or any text node it crosses, sits inside `[contenteditable]`,
   `.ProseMirror`, `[role="textbox"]`, `input`, or `textarea`. This is the single most important
-  safety property of the extension: Linear's title and description are ProseMirror editors, and
-  rewriting their text could persist plaintext back to Linear.
+  safety property of the extension: many hosts render titles and descriptions in ProseMirror-style
+  editors, and rewriting their text could persist plaintext back to the server.
 - **Tokens encrypted to someone else** get the grey tag, and their card names the recipient's
   fingerprint — or, when the address book knows that fingerprint, **Encrypted for Alice ·
   1a2b-3c4d** (see
@@ -174,7 +174,7 @@ options page redraws its list. No reload anywhere.
 ## Sites
 
 The manifest declares **no** `host_permissions` and **no** static `content_scripts`: nothing is
-special-cased, Linear included. Every site goes through the same path — the options page (or the
+special-cased. Every site goes through the same path — the options page (or the
 popup's **Enable on this site**) calls `chrome.permissions.request({origins:["https://x.com/*"]})`.
 The granted host permissions *are* the allowlist: nothing is mirrored into storage, so a revoke
 from `chrome://extensions` cannot leave a stale copy behind, and `enabledSites` in
@@ -263,7 +263,7 @@ tests keep every ceremony in the *same* tab.
 
 - Set up against **iCloud Keychain** on macOS 15+ and confirm the extension-origin RP ID is
   accepted and PRF comes back at `create()` and at `get()`.
-- Quit Chrome completely, reopen Linear, hover a token, and confirm the **Locked · click to
+- Quit Chrome completely, reopen a page with tokens on it, hover one, and confirm the **Locked · click to
   unlock** card appears and Touch ID decrypts the page.
 - Confirm a second Mac signed into the same iCloud account recovers the identical public key
   with **I already have an entziffer passkey**.

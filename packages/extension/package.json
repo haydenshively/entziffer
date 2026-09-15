@@ -1,6 +1,6 @@
 {
   "name": "@entziffer/extension",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Chrome MV3 extension that decrypts ENTZ1 tokens in place on the sites you enable.",
   "license": "MIT",
   "private": true,

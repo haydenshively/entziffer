@@ -1,6 +1,6 @@
 import pkg from "../package.json" with { type: "json" };
 import { cmdEncrypt } from "./commands/encrypt.js";
-import { cmdEncryptIssue } from "./commands/encrypt-issue.js";
+import { cmdEncryptJson } from "./commands/encrypt-json.js";
 import { cmdInspect } from "./commands/inspect.js";
 import { cmdKeys } from "./commands/keys.js";
 import { EXIT_OK, toCliError, usageError } from "./errors.js";
@@ -36,8 +36,8 @@ async function dispatch(argv: string[]): Promise<void> {
       return out(`${VERSION}\n`);
     case "encrypt":
       return cmdEncrypt(args);
-    case "encrypt-issue":
-      return cmdEncryptIssue(args);
+    case "encrypt-json":
+      return cmdEncryptJson(args);
     case "keys":
       return cmdKeys(args);
     case "inspect":

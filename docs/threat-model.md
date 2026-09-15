@@ -1,22 +1,23 @@
 # Threat model
 
-Read this before you put anything in an entziffer issue that would hurt if it leaked.
+Read this before you put anything in an entziffer token that would hurt if it leaked.
 [SECURITY.md](../SECURITY.md) is the short version; this file is the reasoning.
 
 ## What entziffer is for
 
-One person keeps candid notes in Linear — often sourced from a Slack DM or a 1:1 — and
-does not want the rest of the workspace, or Linear's own staff, reading them. Linear has
-no per-issue access control, so the content is encrypted client-side instead.
+One person keeps candid notes in a shared tool — an issue tracker, a wiki, a doc — often
+sourced from a Slack DM or a 1:1, and does not want the rest of the workspace, or the vendor's
+own staff, reading them. Most such tools have no per-record access control, so the content is
+encrypted client-side instead. Linear issues are the motivating example throughout, but nothing
+here is specific to them.
 
 ## Assets
 
 | Asset | Protected? |
 | --- | --- |
-| Issue title text | Yes — AES-256-GCM, key held only by the recipient |
-| Issue description text | Yes |
-| Comment text | Only if you explicitly encrypt each comment |
-| The fact that an issue exists | **No** |
+| The text you encrypt (an issue title, a description, …) | Yes — AES-256-GCM, key held only by the recipient |
+| Every other field (comments, labels, …) | Only if you explicitly encrypt each one |
+| The fact that the record exists | **No** |
 | Author, timestamps, team, project, labels, status, assignee, cycle | **No** |
 | Approximate plaintext length | **No** — ciphertext length ≈ plaintext length + 53 bytes |
 | Recipient fingerprint | **No** — the first 4 bytes of the envelope name the key |
@@ -27,10 +28,9 @@ an identity check — see [Operational rules](#operational-rules).
 
 ## Adversaries this defeats
 
-- **Any other member of your Linear workspace**, including admins and owners. They see
-  `ENTZ1:…`.
-- **Linear the company**, and anyone who obtains a dump of Linear's database or a Linear
-  API token for your workspace.
+- **Any other member of your workspace**, including admins and owners. They see `ENTZ1:…`.
+- **The vendor**, and anyone who obtains a dump of its database or an API token for your
+  workspace.
 - **Integrations**: Slack unfurls, GitHub sync, webhooks, search indexers, analytics — all
   of them receive the ciphertext.
 - **A tampering attacker.** The 37-byte header (version, fingerprint, ephemeral public key)
@@ -166,30 +166,30 @@ what its owner's extension shows, character for character, before you trust the 
 
 - **No forward secrecy for the recipient key.** Each token uses a fresh ephemeral sender
   key, so compromising one token compromises only that token — but an attacker who later
-  obtains your *long-term private key* can decrypt every issue ever encrypted to it,
-  including ones already in Linear's backups. Rotating your key does not protect old
-  issues; only deleting them does.
+  obtains your *long-term private key* can decrypt everything ever encrypted to it,
+  including copies already in the vendor's backups. Rotating your key does not protect old
+  data; only deleting it does.
 - **Single recipient in v1.** You cannot add a second reader after the fact; you would
   re-encrypt and re-file. The format reserves room for multi-recipient (which is why the
   nonce is derived rather than fixed), but v1 rejects more than one.
 - **No signatures.** A token proves nobody tampered with it, not who wrote it. Anyone with
-  your public key can create an issue that decrypts cleanly for you. Trust the Linear
-  author field for provenance, not the ciphertext.
+  your public key can create a token that decrypts cleanly for you. Trust the host
+  application's author field for provenance, not the ciphertext.
 - **Your key is exactly as strong as the passkey's PRF secret.** It inherits the
   authenticator's protection (Secure Enclave, user verification) and the sync channel's:
   whoever controls the iCloud account that syncs the passkey can derive the key.
 - **The passkey is provider-bound.** PRF output is a property of the credential, so a passkey
   moved or re-created in another provider derives a *different* key. Changing providers means
-  a new identity and re-encrypting existing issues, which entziffer does not do for you.
+  a new identity and re-encrypting existing data, which entziffer does not do for you.
 - **Key loss is permanent data loss.** There is no escrow, no export, and no support ticket.
-  Delete the passkey (or lose the Apple account) and the issues stay unreadable forever. This
+  Delete the passkey (or lose the Apple account) and the data stays unreadable forever. This
   is the single most likely way to lose data with entziffer.
 
 ## Operational rules
 
-- Never paste plaintext into a Linear comment, label, project name, branch name, or
-  attachment, and never into a commit message. The skill enforces this for agents; you
-  have to enforce it for yourself.
+- Never paste plaintext into an unencrypted field beside the token — a comment, label,
+  project name, branch name, or attachment — and never into a commit message. Tell your
+  agents the same.
 - Encrypted titles are unsearchable and unsortable. Do not compensate with a plaintext
   "hint" — that hint is usually the part that mattered.
 - When you add a teammate's key, compare the **full `entz1pk_…` string** out of band, not the

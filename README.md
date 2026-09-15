@@ -1,20 +1,22 @@
 # entziffer
 
-Linear has no private issues: anyone in the workspace can read every title and
-description. **entziffer** encrypts an issue's title and description to your public key
-before it ever reaches Linear, and a Chrome extension decrypts them into a card under your
-cursor while you browse — issue list, board, detail view, notifications, search results. To everyone else the issue is a `ENTZ1:…` string. The private key never leaves your
-browser profile, so a Claude Code agent (or a teammate's script) can *write* private issues
-for you with nothing but your public key.
+Shared tools — issue trackers, wikis, docs, chat — have no field-level privacy: anyone who
+can open the page can read every word. **entziffer** encrypts a piece of text to your public
+key before it leaves your machine, and a Chrome extension decrypts it into a card under your
+cursor while you browse — list rows, board cards, detail views, notifications, search results.
+To everyone else the field holds an `ENTZ1:…` string. The private key never leaves your
+browser profile, so an agent (or a teammate's script) can *write* private text for you with
+nothing but your public key. Filing [private Linear issues](#example-private-linear-issues)
+is the motivating use case; nothing in the tooling is specific to it.
 
 ```
-agent/CLI (public key only) ──ENTZ1:<b64url>──▶ Linear ──▶ Chrome extension (private key) ──▶ plaintext shown to you
+agent/CLI (public key only) ──ENTZ1:<b64url>──▶ any web app ──▶ Chrome extension (private key) ──▶ plaintext shown to you
 ```
 
 ## How it works
 
 Public-key encryption, X25519 + HKDF-SHA256 + AES-256-GCM, one ephemeral key pair per
-token. Encrypting requires no secret, so the CLI, the skill, and any agent hold only your
+token. Encrypting requires no secret, so the CLI and any agent hold only your
 `entz1pk_…` public key.
 
 **No private key is stored between sessions.** It is derived from your passkey: the extension
@@ -46,7 +48,7 @@ mirrors, so `entziffer inspect` names the recipient of a token too. Editing a to
 is refused, since editing ciphertext would corrupt it; the refused edit pins that token's card
 by its tag instead. entziffer makes no writes of its own: to change an encrypted field, copy
 the plaintext off the card, encrypt the new value through the CLI, and paste the ciphertext
-back into Linear.
+back into the page.
 
 ## Quick start (5 minutes)
 
@@ -59,29 +61,56 @@ back into Linear.
    `bgopgffcljkdlogpflimomjbfbmbaoap` (why: [docs/install.md](docs/install.md)). Chrome 133 or
    newer.
 2. **Enable the sites you use.** A fresh install runs nowhere. On the options page, under
-   *Sites*, add an origin (`https://linear.app` if you file Linear issues) — Chrome asks for
+   *Sites*, add an origin (`https://linear.app`, `https://github.com`, …) — Chrome asks for
    permission on that origin only — or turn on *Enable on all sites*.
 3. **Set up your key.** Open the extension's options page and click *Set up with Touch ID*.
    It creates a passkey in iCloud Keychain, derives your key from it, and shows the
    `entz1pk_…` public key. On another Mac, click *I already have an entziffer passkey*
    instead and pick the synced passkey — same key, same public key.
 4. **Keep the passkey.** That passkey is the key. Deleting it from iCloud Keychain, or losing
-   the Apple account it lives in, makes every issue encrypted to it unreadable forever. There
+   the Apple account it lives in, makes everything encrypted to it unreadable forever. There
    is no backup file and no export.
 5. **Tell the CLI about the key.**
    ```sh
    npx entziffer@latest keys add me entz1pk_...
    npx entziffer@latest keys default me
    ```
-6. **Install the skill.** It lives in this repo, so clone it if you have not already.
+6. **Use it.**
    ```sh
-   git clone https://github.com/haydenshively/entziffer.git
-   cp -R entziffer/skills/private-linear-issue ~/.claude/skills/
+   npx entziffer@latest encrypt --stdin <<'EOF'
+   Candid notes nobody else should read.
+   EOF
    ```
-7. **Use it.** Ask Claude Code: *"file a private Linear issue about the Acme renewal"*. It
-   encrypts, files the issue, and hands you the URL. Open it in Chrome and read it.
+   Paste the `ENTZ1:…` token into any field on a site you enabled, then hover it.
 
-Full details, per-repo skill installs, and a verification step: [docs/install.md](docs/install.md).
+Full details and a verification step: [docs/install.md](docs/install.md).
+
+## Example: private Linear issues
+
+Linear has no private issues: every title and description is readable by the whole
+workspace. With entziffer an agent files the issue with ciphertext in both fields, and only
+you see the plaintext. Sketch of what a Claude Code skill (or any script) does:
+
+1. Enable `https://linear.app` under *Sites* on the extension's options page.
+2. Encrypt the title and description together, on stdin so the plaintext never touches `argv`:
+   ```sh
+   npx entziffer@latest encrypt-json --json <<'JSON'
+   {"title": "Acme renewal — candid notes", "description": "…"}
+   JSON
+   ```
+   Output is `{"fields":{"title":"ENTZ1:…","description":"ENTZ1:…"},"recipient":"me","fingerprint":"a1b2-c3d4"}`.
+3. Create the issue through the Linear MCP server's `save_issue` (or the GraphQL API) with the
+   returned `fields` **verbatim** — no code fence, no wrapping, no truncation.
+   The extension stops reading a token at the first character outside `[A-Za-z0-9_-]`.
+4. Report the issue URL and the recipient fingerprint, so you can check it against the one
+   your extension shows.
+
+Rules that make it worth doing: never put the plaintext, a summary, or a "search hint" into
+any unencrypted field — comments, labels, project names, branch names, attachments — or into a
+commit message; treat encrypted titles as unsearchable and unsortable; if encryption fails,
+stop rather than file in plaintext. Linear's title and description are ProseMirror editors, and
+the extension refuses edits that touch a token there, so nothing you do in the page can write
+plaintext back. To change an encrypted field, re-encrypt the whole new value and replace it.
 
 ## Locking and unlocking
 
@@ -101,15 +130,16 @@ auto-lock timeout (1, 4, 12, or 24 hours; 12 by default).
 
 Requires macOS 15+ with Chrome 133+ and a PRF-capable passkey provider (iCloud Keychain). The
 passkey is provider-bound: moving to a different provider means a different key, and
-re-encrypting existing issues, which entziffer does not do for you yet.
+re-encrypting existing data, which entziffer does not do for you yet.
 
 ## What is protected, and what is not
 
-Encrypted: the **content** of the issue title and description — from teammates, workspace
-admins, and Linear itself.
+Encrypted: the **content** of the fields you encrypt — from teammates, workspace admins, and
+the vendor itself.
 
-Not encrypted: that the issue exists, who created it, when, its team, project, labels,
-status, comments, and the approximate length of the plaintext. Anyone who compromises your
+Not encrypted: that the record exists, who created it, when, every field you left in
+plaintext (team, project, labels, status, comments), and the approximate length of the
+plaintext. Anyone who compromises your
 Chrome profile while it is unlocked can read everything. Losing the passkey destroys the data
 permanently. Read [SECURITY.md](SECURITY.md) and
 [docs/threat-model.md](docs/threat-model.md) **before** deciding this is enough for your
@@ -120,10 +150,9 @@ threat model.
 | Path | What |
 | --- | --- |
 | `packages/core` | `@entziffer/core` — WebCrypto-only implementation of ENTZ1, zero runtime deps |
-| `packages/cli` | `entziffer` — the npm CLI agents call (`encrypt-issue`, `keys`, …) |
+| `packages/cli` | `entziffer` — the npm CLI agents call (`encrypt`, `encrypt-json`, `keys`, …) |
 | `packages/extension` | Chrome MV3 extension: keystore, session lock, content script, options page |
 | `reference/` | `encrypt.mjs`, the auditable single-file implementation, plus cross-impl tests |
-| `skills/private-linear-issue` | The Claude Code skill |
 | `docs/` | [format](docs/format.md), [install](docs/install.md), [threat model](docs/threat-model.md) |
 | `CONTRIBUTING.md` | Local setup, dev loop, and how a release happens |
 
