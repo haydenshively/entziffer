@@ -4,9 +4,11 @@ on:
   push:
     branches: [master]
 
+# Never cancel a run that may be mid-publish: a cancelled run could leave the
+# version on npm with no matching tag, and the next run would tag a newer sha.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -37,13 +39,14 @@ jobs:
       - name: Read local version
         id: local
         run: |
-          cli="$(jq -r .version packages/cli/package.json)"
-          core="$(jq -r .version packages/core/package.json)"
-          if [ "$cli" != "$core" ]; then
-            echo "::error::packages/cli is $cli but packages/core is $core; bump them together"
+          files="packages/cli/package.json packages/core/package.json packages/extension/package.json packages/extension/manifest.json"
+          versions="$(jq -r .version $files | sort -u)"
+          if [ "$(printf '%s\n' "$versions" | wc -l)" -ne 1 ]; then
+            echo "::error::version fields disagree; bump them together:"
+            for f in $files; do echo "  $f: $(jq -r .version "$f")"; done
             exit 1
           fi
-          echo "version=$cli" >> "$GITHUB_OUTPUT"
+          echo "version=$versions" >> "$GITHUB_OUTPUT"
 
       - name: Read npm version
         id: npm
