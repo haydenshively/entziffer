@@ -63,15 +63,6 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # `pnpm publish -r` rewrites the `workspace:` protocol in dependencies to real
-      # version ranges; `npm publish` would ship an uninstallable package. Auth is npm
-      # trusted publishing over the job's OIDC token, so no NODE_AUTH_TOKEN is set.
-      - name: Publish to npm
-        if: steps.local.outputs.version != steps.npm.outputs.version
-        run: pnpm publish -r --access public --provenance --no-git-checks
-        env:
-          NPM_CONFIG_PROVENANCE: "true"
-
       - uses: actions/download-artifact@v4
         if: steps.tag.outputs.exists == 'false'
         with:
@@ -94,3 +85,14 @@ jobs:
           generate_release_notes: true
           files: ${{ steps.zip.outputs.path }}
           fail_on_unmatched_files: true
+
+      # The GitHub release above is the extension's only distribution channel, so it is
+      # created before npm publishing can fail (trusted publishing needs a one-time setup).
+      # `pnpm publish -r` rewrites the `workspace:` protocol in dependencies to real
+      # version ranges; `npm publish` would ship an uninstallable package. Auth is npm
+      # trusted publishing over the job's OIDC token, so no NODE_AUTH_TOKEN is set.
+      - name: Publish to npm
+        if: steps.local.outputs.version != steps.npm.outputs.version
+        run: pnpm publish -r --access public --provenance --no-git-checks
+        env:
+          NPM_CONFIG_PROVENANCE: "true"

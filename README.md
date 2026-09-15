@@ -54,7 +54,7 @@ back into Linear.
    Download `entziffer-extension-<version>.zip` from the
    [latest release](https://github.com/haydenshively/entziffer/releases/latest), unzip it
    somewhere permanent, then `chrome://extensions` → Developer mode → *Load unpacked* → pick
-   the folder. Or build it yourself: `pnpm install && pnpm build`, then load
+   the folder. Or build it yourself: clone this repo, `pnpm install && pnpm build`, then load
    `packages/extension/dist`. Either way the card must show ID
    `bgopgffcljkdlogpflimomjbfbmbaoap` (why: [docs/install.md](docs/install.md)). Chrome 133 or
    newer.
@@ -73,9 +73,10 @@ back into Linear.
    npx entziffer@latest keys add me entz1pk_...
    npx entziffer@latest keys default me
    ```
-6. **Install the skill.**
+6. **Install the skill.** It lives in this repo, so clone it if you have not already.
    ```sh
-   cp -R skills/private-linear-issue ~/.claude/skills/
+   git clone https://github.com/haydenshively/entziffer.git
+   cp -R entziffer/skills/private-linear-issue ~/.claude/skills/
    ```
 7. **Use it.** Ask Claude Code: *"file a private Linear issue about the Acme renewal"*. It
    encrypts, files the issue, and hands you the URL. Open it in Chrome and read it.
