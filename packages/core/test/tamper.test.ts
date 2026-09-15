@@ -79,6 +79,14 @@ describe("tamper detection", () => {
     expect(await codeOf("ENTZ1:A")).toBe("BAD_BASE64");
   });
 
+  it("low-order ephemeral point → DECRYPT_FAILED", async () => {
+    const bytes = b64urlDecode(token.slice(MARKER.length));
+    for (const lowOrder of [new Uint8Array(32), Uint8Array.from([1, ...new Array(31).fill(0)])]) {
+      bytes.set(lowOrder, 5);
+      expect(await codeOf(MARKER + b64urlEncode(bytes))).toBe("DECRYPT_FAILED");
+    }
+  });
+
   it("non-zero base64url padding bits → BAD_BASE64", () => {
     expect(() => b64urlDecode("AB")).toThrowError(/padding/);
   });

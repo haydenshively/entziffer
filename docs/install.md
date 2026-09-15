@@ -85,14 +85,17 @@ identity and re-encrypting existing issues, which entziffer does not do for you.
 
 ### Locking and unlocking
 
-- The first encrypted token in a new browser session shows a 🔐 badge titled *Click to unlock
-  entziffer*. Clicking it opens an unlock tab that runs the Touch ID prompt and closes itself;
-  the page then decrypts. The action popup has **Unlock** and **Lock now** buttons. (The
-  prompt has to run in a tab: opening the OS dialog closes the popup.)
+- Lock state has no indicator on the page; the tags are drawn either way. In a new browser
+  session hovering a token shows a *Locked · click to unlock* card; clicking the token, or that
+  card, opens a small window, centred on the one you are in, that runs the Touch ID prompt and
+  closes itself, leaving you on the tab you were on, after which hovering a token shows its
+  plaintext. The action popup has **Unlock** and **Lock now** buttons. (The prompt has to run in
+  an extension page of its own: opening the OS dialog closes the action popup.)
 - The session ends on browser restart, on extension reload, on **Lock now**, and after the
   auto-lock timeout — 1, 4, 12 (default), or 24 hours, chosen on the options page. Locking is
-  immediate on every open tab: already-decrypted text reverts to
-  ciphertext and overlays disappear without a reload.
+  immediate on every open tab: any card on screen goes away at once and hovering a token shows
+  the locked card, without a reload. The page's own text was never changed, so there is nothing
+  to strip.
 
 If something goes wrong:
 
@@ -195,20 +198,20 @@ npx entziffer@latest encrypt --to me "hello from entziffer"
 npx entziffer@latest inspect "ENTZ1:..."
 
 # 3. The extension decrypts it: paste the token into any Linear issue comment box
-#    preview, or a Linear issue you own, and confirm the plaintext appears.
+#    preview, or a Linear issue you own, hover the token, and confirm the plaintext appears.
 ```
 
 Then the end-to-end test: ask Claude Code *"file a private Linear issue titled 'entziffer
 smoke test' saying it worked"*. You should get an issue URL; opening it in Chrome should
-show the plaintext, and opening it in a browser without the extension (or asking a
-teammate) should show `ENTZ1:…`.
+show the plaintext when you hover it, and opening it in a browser without the extension (or
+asking a teammate) should show `ENTZ1:…`.
 
-If step 3 shows ciphertext in Chrome:
+If step 3 shows no plaintext in Chrome:
 
-- Check the fingerprint from `inspect` against the one in the extension popup — encrypting
-  to the wrong recipient shows a lock badge instead of text.
-- Check that entziffer is unlocked: a 🔐 badge means the session is locked, not that the
-  token is wrong.
+- Check the fingerprint from `inspect` against the one in the extension popup — a token
+  encrypted to the wrong recipient gets a grey tag and a grey *Encrypted for someone else* card.
+- Check that entziffer is unlocked: a hover card reading *Locked · click to unlock* means the
+  session is locked, not that the token is wrong.
 - Check that the origin is enabled: open the popup on that tab, which says whether entziffer
   runs there and offers **Enable on this site** when it does not.
 

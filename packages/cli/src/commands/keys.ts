@@ -1,32 +1,34 @@
-import { parseArgs } from "node:util";
-import { formatFingerprint, importPublicKey } from "@entziffer/core";
+import {
+  b64urlDecode,
+  fingerprint,
+  formatFingerprint,
+  importPublicKey,
+  PUBLIC_KEY_PREFIX,
+  RAW_KEY_BYTES,
+} from "@entziffer/core";
 import { type Config, emptyConfig, readConfig, requireConfig, writeConfig } from "../config.js";
-import { CliError, EXIT_UNKNOWN_RECIPIENT, parsing, usageError } from "../errors.js";
+import { CliError, EXIT_UNKNOWN_RECIPIENT, usageError } from "../errors.js";
 import { json, out, warn } from "../io.js";
-import { GLOBAL_OPTIONS, globals } from "../options.js";
+import { parseCommand } from "../options.js";
 import { USAGE } from "../usage.js";
 
 export async function cmdKeys(args: string[]): Promise<void> {
-  const { values, positionals } = parsing(() =>
-    parseArgs({
-      args,
-      allowPositionals: true,
-      options: { ...GLOBAL_OPTIONS, note: { type: "string" }, default: { type: "boolean" } },
-    }),
-  );
-  const g = globals(values);
+  const { values, positionals, configPath, ...g } = parseCommand(args, {
+    note: { type: "string" },
+    default: { type: "boolean" },
+  });
   if (g.help) return out(USAGE);
 
   const [sub, ...rest] = positionals;
   switch (sub) {
     case "add":
-      return add(rest, values.note, values.default === true, g.configPath, g.quiet);
+      return add(rest, values.note, values.default === true, configPath);
     case "list":
-      return list(rest, g.configPath, g.quiet, g.json);
+      return list(rest, configPath, g.json);
     case "default":
-      return setDefault(rest, g.configPath, g.quiet);
+      return setDefault(rest, configPath);
     case "rm":
-      return remove(rest, g.configPath, g.quiet);
+      return remove(rest, configPath);
     default:
       throw usageError(
         sub === undefined ? "keys needs a subcommand" : `unknown keys subcommand: ${sub}`,
@@ -38,12 +40,22 @@ function unknownRecipient(name: string): CliError {
   return new CliError("E_UNKNOWN_RECIPIENT", `unknown recipient: ${name}`, EXIT_UNKNOWN_RECIPIENT);
 }
 
+/** `null` for any entry that is not a well-formed key string, so one bad row cannot hide the rest. */
+async function fingerprintOf(publicKey: string): Promise<string | null> {
+  if (!publicKey.startsWith(PUBLIC_KEY_PREFIX)) return null;
+  try {
+    const raw = b64urlDecode(publicKey.slice(PUBLIC_KEY_PREFIX.length));
+    return raw.length === RAW_KEY_BYTES ? formatFingerprint(await fingerprint(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function add(
   positionals: string[],
   note: string | undefined,
   makeDefault: boolean,
   configPath: string,
-  quiet: boolean,
 ): Promise<void> {
   const [name, publicKey, ...extra] = positionals;
   if (name === undefined || publicKey === undefined || extra.length > 0) {
@@ -54,29 +66,21 @@ async function add(
   }
   const key = await importPublicKey(publicKey);
 
-  const cfg = readConfig(configPath, quiet) ?? emptyConfig();
+  const cfg = readConfig(configPath) ?? emptyConfig();
   cfg.recipients[name] = note === undefined ? { publicKey } : { publicKey, note };
   if (makeDefault || cfg.default === undefined) cfg.default = name;
   writeConfig(configPath, cfg);
-  warn(
-    `added ${name} (${formatFingerprint(key.fpr)})${cfg.default === name ? " as default" : ""}`,
-    quiet,
-  );
+  warn(`added ${name} (${formatFingerprint(key.fpr)})${cfg.default === name ? " as default" : ""}`);
 }
 
-async function list(
-  positionals: string[],
-  configPath: string,
-  quiet: boolean,
-  asJson: boolean,
-): Promise<void> {
+async function list(positionals: string[], configPath: string, asJson: boolean): Promise<void> {
   if (positionals.length > 0) throw usageError("keys list takes no arguments");
-  const cfg = readConfig(configPath, quiet) ?? emptyConfig();
+  const cfg = readConfig(configPath) ?? emptyConfig();
   const rows = await Promise.all(
     Object.entries(cfg.recipients).map(async ([name, entry]) => ({
       name,
       publicKey: entry.publicKey,
-      fingerprint: formatFingerprint((await importPublicKey(entry.publicKey)).fpr),
+      fingerprint: await fingerprintOf(entry.publicKey),
       note: entry.note ?? null,
       default: cfg.default === name,
     })),
@@ -86,41 +90,43 @@ async function list(
     return;
   }
   if (rows.length === 0) {
-    warn(`no recipients in ${configPath}`, quiet);
+    warn(`no recipients in ${configPath}`);
     return;
   }
   for (const row of rows) {
     const note = row.note === null ? "" : `  ${row.note}`;
-    out(`${row.default ? "*" : " "} ${row.name}  ${row.fingerprint}  ${row.publicKey}${note}\n`);
+    const fpr = row.fingerprint ?? "invalid";
+    out(`${row.default ? "*" : " "} ${row.name}  ${fpr}  ${row.publicKey}${note}\n`);
   }
 }
 
-function setDefault(positionals: string[], configPath: string, quiet: boolean): void {
+function setDefault(positionals: string[], configPath: string): void {
   const [name, ...extra] = positionals;
   if (name === undefined || extra.length > 0) {
     throw usageError("usage: entziffer keys default <name>");
   }
-  const cfg: Config = requireConfig(configPath, quiet);
+  const cfg: Config = requireConfig(configPath);
   if (cfg.recipients[name] === undefined) throw unknownRecipient(name);
   cfg.default = name;
   writeConfig(configPath, cfg);
-  warn(`default recipient is now ${name}`, quiet);
+  warn(`default recipient is now ${name}`);
 }
 
-function remove(positionals: string[], configPath: string, quiet: boolean): void {
+function remove(positionals: string[], configPath: string): void {
   const [name, ...extra] = positionals;
   if (name === undefined || extra.length > 0) throw usageError("usage: entziffer keys rm <name>");
-  const cfg: Config = requireConfig(configPath, quiet);
+  const cfg: Config = requireConfig(configPath);
   if (cfg.recipients[name] === undefined) throw unknownRecipient(name);
   delete cfg.recipients[name];
-  if (cfg.default === name) {
-    const next = Object.keys(cfg.recipients)[0];
-    if (next === undefined) {
-      cfg.default = undefined;
-    } else {
-      cfg.default = next;
-    }
-  }
+  const reassigned = cfg.default === name;
+  if (reassigned) cfg.default = Object.keys(cfg.recipients)[0];
   writeConfig(configPath, cfg);
-  warn(`removed ${name}`, quiet);
+  warn(`removed ${name}`);
+  if (reassigned) {
+    warn(
+      cfg.default === undefined
+        ? "no default recipient"
+        : `default recipient is now ${cfg.default}`,
+    );
+  }
 }

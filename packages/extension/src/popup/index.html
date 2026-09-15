@@ -6,25 +6,48 @@
     <link rel="stylesheet" href="./popup.css" />
   </head>
   <body>
-    <h1>entziffer</h1>
-    <p id="state" class="muted">Loading…</p>
-    <dl id="identity" hidden>
-      <dt>Fingerprint</dt>
-      <dd><code id="fingerprint"></code></dd>
-    </dl>
-    <div class="row">
-      <button id="unlock" type="button" hidden>Unlock</button>
-      <button id="lock" type="button" hidden>Lock now</button>
+    <div class="panel glass">
+      <header class="head">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+            <path d="M9.6 19.5V11.5a2.4 2.8 0 0 1 4.8 0V18" />
+            <path d="M7.1 21V11.5a4.9 5.6 0 0 1 9.8 0V19" />
+            <path d="M4.6 19.5V11.5a7.4 8.2 0 0 1 14.8 0V16.5" />
+            <path d="M2.4 15V11.5a9.6 10.2 0 0 1 19.2 0V13" />
+          </svg>
+        </span>
+        <div class="titles">
+          <h1>entziffer</h1>
+          <dl id="identity" hidden>
+            <dt>Fingerprint</dt>
+            <dd><code id="fingerprint" class="pill mono"></code></dd>
+          </dl>
+        </div>
+        <span class="state-pill pill" aria-hidden="true"></span>
+      </header>
+
+      <p id="state" class="muted">Loading…</p>
+
+      <div class="row">
+        <button id="unlock" class="glass-button primary" type="button" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M9.6 19.4V11.5a2.4 2.8 0 0 1 4.8 0V18" /><path d="M6.9 21V11.5a5.1 5.8 0 0 1 10.2 0V18.6" /><path d="M3.6 16.5V11.5a8.4 9 0 0 1 16.8 0V14.5" /></svg>
+          Unlock
+        </button>
+        <button id="lock" class="glass-button" type="button" hidden>Lock now</button>
+      </div>
+
+      <div class="row">
+        <button id="copy-public" class="glass-button" type="button" hidden>Copy public key</button>
+        <button id="options" class="glass-button" type="button">Settings</button>
+      </div>
+
+      <div id="site-row" hidden>
+        <p id="site-state" class="muted"></p>
+        <button id="enable-site" class="glass-button" type="button" hidden>Enable on this site</button>
+      </div>
+
+      <p id="status" role="status" aria-live="polite"></p>
     </div>
-    <div class="row">
-      <button id="copy-public" type="button" hidden>Copy public key</button>
-      <button id="options" type="button">Open settings</button>
-    </div>
-    <div id="site-row" hidden>
-      <p id="site-state" class="muted"></p>
-      <button id="enable-site" type="button" hidden>Enable on this site</button>
-    </div>
-    <p id="status" role="status" aria-live="polite"></p>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

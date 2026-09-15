@@ -56,13 +56,23 @@ const TAG_BYTES = 16;
 const DEFAULT_VECTORS = new URL("../packages/core/test/vectors.json", import.meta.url);
 
 // Node's KeyObject API refuses `format: "raw"` for X25519, so raw keys are turned into
-// DER documents by prepending the fixed RFC 8410 prefixes. These bytes are constant for
-// every X25519 key: an SPKI/PKCS#8 wrapper whose only variable part is the 32-byte key.
+// DER documents by prepending the fixed RFC 8410 (https://www.rfc-editor.org/rfc/rfc8410)
+// prefixes. These bytes are constant for every X25519 key: an SPKI/PKCS#8 wrapper whose
+// only variable part is the 32-byte key.
 const DER_SPKI_X25519 = Buffer.from("302a300506032b656e032100", "hex");
 const DER_PKCS8_X25519 = Buffer.from("302e020100300506032b656e04220420", "hex");
 
 const b64url = (buf) => buf.toString("base64url");
-const unb64url = (str) => Buffer.from(str, "base64url");
+
+// Buffer's base64url decoder is lenient: it skips stray characters and accepts non-canonical
+// trailing bits. Attacker-supplied strings get exactly one encoding, so reject the rest.
+function unb64url(str) {
+  if (!/^[A-Za-z0-9_-]*$/.test(str)) die("not base64url");
+  if (str.length % 4 === 1) die("truncated base64url group");
+  const buf = Buffer.from(str, "base64url");
+  if (b64url(buf) !== str) die("non-canonical base64url");
+  return buf;
+}
 
 const rawToPublicKey = (raw) =>
   createPublicKey({ key: Buffer.concat([DER_SPKI_X25519, raw]), format: "der", type: "spki" });
@@ -152,11 +162,12 @@ function verifyVectors(path) {
   const recipientPub = parsePublicKeyString(file.recipient.publicKey);
   const recipientPriv = rawToPrivateKey(Buffer.from(file.recipient.privateKeyHex, "hex"));
   let failed = 0;
+  let derivationFailed = 0;
   if (file.derivation) {
     const { rawPub } = deriveFromPrf(Buffer.from(file.derivation.prfHex, "hex"));
     const key = PUBLIC_KEY_PREFIX + b64url(rawPub);
     const ok = key === file.derivation.publicKey;
-    if (!ok) failed++;
+    if (!ok) derivationFailed++;
     process.stderr.write(`${ok ? "ok  " : "FAIL"} derivation (${key})\n`);
   }
   for (const v of file.vectors) {
@@ -172,7 +183,7 @@ function verifyVectors(path) {
     }
   }
   process.stderr.write(`${file.vectors.length - failed}/${file.vectors.length} vectors match\n`);
-  if (failed > 0) process.exit(1);
+  if (failed + derivationFailed > 0) process.exit(1);
 }
 
 function die(message) {
@@ -198,9 +209,10 @@ function main(argv) {
     else if (arg === "--stdin") opts.stdin = true;
     else if (arg === "--decrypt") opts.decrypt = true;
     else if (arg === "--derive") opts.derive = argv[++i];
-    else if (arg === "--vectors")
-      opts.vectors = argv[i + 1]?.startsWith("--") ? true : (argv[++i] ?? true);
-    else if (arg === "--help" || arg === "-h") return process.stdout.write(USAGE);
+    else if (arg === "--vectors") {
+      const next = argv[i + 1];
+      opts.vectors = next === undefined || next.startsWith("--") ? true : argv[++i];
+    } else if (arg === "--help" || arg === "-h") return process.stdout.write(USAGE);
     else if (arg.startsWith("--")) die(`unknown option ${arg}`);
     else positional.push(arg);
   }
@@ -223,9 +235,10 @@ function main(argv) {
     return process.stdout.write(`${decrypt(token, loadPrivateKey(opts.key))}\n`);
   }
   if (!opts.to) die(`missing --to entz1pk_...\n${USAGE}`);
-  const plaintext = opts.stdin ? readFileSync(0, "utf8") : positional[0];
+  // Matches the CLI's `--stdin`: exactly one trailing newline is dropped (see cli/src/io.ts).
+  const plaintext = opts.stdin ? readFileSync(0, "utf8").replace(/\r?\n$/, "") : positional[0];
   if (plaintext === undefined) die("no plaintext given (pass it as an argument or use --stdin)");
-  process.stdout.write(`${encrypt(plaintext, parsePublicKeyString(opts.to), opts)}\n`);
+  process.stdout.write(`${encrypt(plaintext, parsePublicKeyString(opts.to), {})}\n`);
 }
 
 main(process.argv.slice(2));

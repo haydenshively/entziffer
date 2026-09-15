@@ -1,39 +1,61 @@
-:root {
-  color-scheme: light dark;
-}
+@import "../shared/glass.css";
+
 body {
-  font:
-    15px / 1.6 system-ui,
-    sans-serif;
-  margin: 0;
   display: grid;
   place-items: center;
   min-height: 100vh;
+  padding: 18px;
 }
-main {
-  max-width: 34ch;
-  padding: 24px;
+
+.card {
+  width: min(364px, 100%);
+  padding: 26px 26px 20px;
   text-align: center;
 }
+
+.glyph {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  border-radius: 19px;
+  background-color: color-mix(in srgb, var(--accent) 18%, var(--control-glass));
+  box-shadow:
+    var(--control-shadow),
+    0 10px 24px -10px color-mix(in srgb, var(--accent) 70%, transparent);
+  color: var(--accent);
+}
+
+.glyph svg {
+  width: 40px;
+  height: 40px;
+}
+
 h1 {
-  font-size: 1.2rem;
-  margin: 0 0 8px;
+  margin: 0;
+  font-size: 19px;
 }
-.muted {
-  opacity: 0.75;
+
+#state {
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  min-height: 21px;
 }
-.small {
-  font-size: 0.85em;
+
+#state[data-error] {
+  color: var(--danger);
 }
-[data-error] {
-  color: #b3261e;
-  opacity: 1;
+
+#retry {
+  margin-top: 14px;
+  padding: 9px 22px;
 }
-button.primary {
-  font: inherit;
-  padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid currentColor;
-  background: transparent;
-  cursor: pointer;
+
+.footnote {
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
 }

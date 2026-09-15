@@ -19,21 +19,20 @@ import {
 } from "../shared/messages.js";
 import { broadcastUnlocked } from "./broadcast.js";
 import { clearKey, type KeyRecord, readKey, readSession, writeKey } from "./keystore.js";
+import { syncDynamicScripts } from "./scripts.js";
 import {
   installSessionListeners,
   lockNow,
-  rememberUnlockTab,
+  rememberUnlockWindow,
   scheduleAutoLock,
   sessionKey,
   unlockSession,
-  unlockTabId,
+  unlockWindowId,
 } from "./session.js";
 import { getSettings, setSettings } from "./settings.js";
 
 const UNLOCK_PAGE = "unlock/index.html";
-
-const DYNAMIC_SCRIPT_ID = "entz-enabled-origins";
-const ALL_URLS = "<all_urls>";
+const UNLOCK_WINDOW = { width: 440, height: 400 };
 
 function identityOf(record: KeyRecord): KeyIdentity {
   return {
@@ -55,19 +54,43 @@ async function statusOf(record?: KeyRecord): Promise<KeyStatus> {
   };
 }
 
-async function openUnlockTab(): Promise<void> {
+/**
+ * Runs the passkey ceremony in a small popup window centred on the caller's window rather than in
+ * a tab: the page has to be extension-origin for WebAuthn, and a popup that closes itself hands
+ * focus straight back to the tab the user was on. One popup at a time; a second request refocuses it.
+ */
+async function openUnlockWindow(sender: chrome.runtime.MessageSender): Promise<void> {
   const url = chrome.runtime.getURL(UNLOCK_PAGE);
-  const existing = await unlockTabId();
+  const existing = await unlockWindowId();
   if (existing !== undefined) {
-    const tab = await chrome.tabs.get(existing).catch(() => undefined);
-    if (tab?.url === url && tab.id !== undefined) {
-      await chrome.tabs.update(tab.id, { active: true });
-      await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
+    const open = await chrome.windows.get(existing, { populate: true }).catch(() => undefined);
+    if (open?.tabs?.some((tab) => tab.url === url)) {
+      await chrome.windows.update(existing, { focused: true, drawAttention: true });
       return;
     }
   }
-  const tab = await chrome.tabs.create({ url });
-  if (tab.id !== undefined) await rememberUnlockTab(tab.id);
+  const parent =
+    sender.tab === undefined
+      ? await chrome.windows.getLastFocused().catch(() => undefined)
+      : await chrome.windows.get(sender.tab.windowId).catch(() => undefined);
+  const centred =
+    parent?.left !== undefined &&
+    parent.width !== undefined &&
+    parent.top !== undefined &&
+    parent.height !== undefined
+      ? {
+          left: Math.round(parent.left + (parent.width - UNLOCK_WINDOW.width) / 2),
+          top: Math.round(parent.top + (parent.height - UNLOCK_WINDOW.height) / 2),
+        }
+      : {};
+  const created = await chrome.windows.create({
+    url,
+    type: "popup",
+    focused: true,
+    ...UNLOCK_WINDOW,
+    ...centred,
+  });
+  if (created?.id !== undefined) await rememberUnlockWindow(created.id);
 }
 
 function sameKey(a: ArrayBuffer, b: Uint8Array): boolean {
@@ -77,7 +100,10 @@ function sameKey(a: ArrayBuffer, b: Uint8Array): boolean {
 
 type AnyResponseData = ResponseData[RequestType];
 
-async function handle(request: Request): Promise<AnyResponseData> {
+async function handle(
+  request: Request,
+  sender: chrome.runtime.MessageSender = {},
+): Promise<AnyResponseData> {
   switch (request.type) {
     case "getStatus":
       return { status: await statusOf() };
@@ -91,7 +117,7 @@ async function handle(request: Request): Promise<AnyResponseData> {
       };
     }
     case "requestUnlock":
-      await openUnlockTab();
+      await openUnlockWindow(sender);
       return {};
     case "setupKey": {
       const { privateKey, publicRaw, fpr } = await deriveKeyFromPrf(b64urlDecode(request.prf));
@@ -148,7 +174,6 @@ async function handle(request: Request): Promise<AnyResponseData> {
       return { settings: await getSettings() };
     case "setSettings": {
       const settings = await setSettings(request.patch);
-      await syncDynamicScripts();
       if (request.patch.autoLockMinutes !== undefined) await scheduleAutoLock();
       return { settings };
     }
@@ -166,7 +191,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: false, code: "FORBIDDEN", message: "extension pages only" });
       return false;
     }
-    handle(request)
+    handle(request, sender)
       .then((data) => sendResponse({ ok: true, data }))
       .catch((e: unknown) =>
         sendResponse({
@@ -178,37 +203,6 @@ chrome.runtime.onMessage.addListener(
     return true;
   },
 );
-
-/**
- * The content script runs nowhere until an origin is enabled: this registration is the only
- * thing that injects it, and an origin whose host permission has been revoked is dropped.
- */
-async function syncDynamicScripts(): Promise<void> {
-  const { enabledOrigins, allSites } = await getSettings();
-  const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [DYNAMIC_SCRIPT_ID] });
-  if (existing.length > 0) {
-    await chrome.scripting.unregisterContentScripts({ ids: [DYNAMIC_SCRIPT_ID] });
-  }
-  const matches: string[] = [];
-  if (allSites && (await chrome.permissions.contains({ origins: [ALL_URLS] }))) {
-    matches.push(ALL_URLS);
-  } else {
-    for (const origin of enabledOrigins) {
-      const pattern = `${origin}/*`;
-      if (await chrome.permissions.contains({ origins: [pattern] })) matches.push(pattern);
-    }
-  }
-  if (matches.length === 0) return;
-  await chrome.scripting.registerContentScripts([
-    {
-      id: DYNAMIC_SCRIPT_ID,
-      js: ["content.js"],
-      matches,
-      runAt: "document_idle",
-      persistAcrossSessions: false,
-    },
-  ]);
-}
 
 chrome.runtime.onStartup.addListener(() => void syncDynamicScripts());
 chrome.runtime.onInstalled.addListener(() => void syncDynamicScripts());
@@ -232,6 +226,10 @@ if (import.meta.env.VITE_E2E === "1") {
   (globalThis as Record<string, unknown>).__entzSetSettings = (patch: unknown) =>
     setSettings(patch as Parameters<typeof setSettings>[0]);
   (globalThis as Record<string, unknown>).__entzClearKey = clearKey;
+  (globalThis as Record<string, unknown>).__entzGetLocal = async (key: string): Promise<unknown> =>
+    (await chrome.storage.local.get(key))[key];
+  (globalThis as Record<string, unknown>).__entzClearLocal = (key: string) =>
+    chrome.storage.local.remove(key);
   (globalThis as Record<string, unknown>).__entzKeyRecordMeta = async () => {
     const record = await readKey();
     if (record === null || record === undefined) return null;

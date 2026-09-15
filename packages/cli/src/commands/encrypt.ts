@@ -1,30 +1,21 @@
-import { parseArgs } from "node:util";
 import { encrypt } from "@entziffer/core";
 import { readConfig } from "../config.js";
-import { parsing, usageError } from "../errors.js";
+import { usageError } from "../errors.js";
 import { json, out, readStdin } from "../io.js";
-import { GLOBAL_OPTIONS, globals } from "../options.js";
+import { parseCommand } from "../options.js";
 import { resolveRecipient } from "../recipient.js";
 import { USAGE } from "../usage.js";
 
 export async function cmdEncrypt(args: string[]): Promise<void> {
-  const { values, positionals } = parsing(() =>
-    parseArgs({
-      args,
-      allowPositionals: true,
-      options: {
-        ...GLOBAL_OPTIONS,
-        to: { type: "string", multiple: true },
-        stdin: { type: "boolean" },
-      },
-    }),
-  );
-  const g = globals(values);
+  const { values, positionals, configPath, ...g } = parseCommand(args, {
+    to: { type: "string", multiple: true },
+    stdin: { type: "boolean" },
+  });
   if (g.help) return out(USAGE);
 
   const text = await resolveText(positionals, values.stdin === true);
-  const cfg = readConfig(g.configPath, g.quiet);
-  const recipient = await resolveRecipient(values.to, cfg, g.configPath);
+  const cfg = readConfig(configPath);
+  const recipient = await resolveRecipient(values.to, cfg, configPath);
   const token = await encrypt(text, recipient.key);
 
   if (g.json) {

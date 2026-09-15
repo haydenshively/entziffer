@@ -1,9 +1,8 @@
-import { parseArgs } from "node:util";
 import { encrypt } from "@entziffer/core";
 import { readConfig } from "../config.js";
-import { parsing, usageError } from "../errors.js";
+import { usageError } from "../errors.js";
 import { json, out, readStdin } from "../io.js";
-import { GLOBAL_OPTIONS, globals } from "../options.js";
+import { parseCommand } from "../options.js";
 import { resolveRecipient } from "../recipient.js";
 import { USAGE } from "../usage.js";
 
@@ -66,27 +65,19 @@ async function readIssue(values: {
 }
 
 export async function cmdEncryptIssue(args: string[]): Promise<void> {
-  const { values, positionals } = parsing(() =>
-    parseArgs({
-      args,
-      allowPositionals: true,
-      options: {
-        ...GLOBAL_OPTIONS,
-        title: { type: "string" },
-        body: { type: "string" },
-        "body-stdin": { type: "boolean" },
-        "stdin-json": { type: "boolean" },
-        to: { type: "string", multiple: true },
-      },
-    }),
-  );
-  const g = globals(values);
+  const { values, positionals, configPath, ...g } = parseCommand(args, {
+    title: { type: "string" },
+    body: { type: "string" },
+    "body-stdin": { type: "boolean" },
+    "stdin-json": { type: "boolean" },
+    to: { type: "string", multiple: true },
+  });
   if (g.help) return out(USAGE);
   if (positionals.length > 0) throw usageError("encrypt-issue takes no positional arguments");
 
   const issue = await readIssue(values);
-  const cfg = readConfig(g.configPath, g.quiet);
-  const recipient = await resolveRecipient(values.to, cfg, g.configPath);
+  const cfg = readConfig(configPath);
+  const recipient = await resolveRecipient(values.to, cfg, configPath);
 
   const result: EncryptIssueOutput = {
     title: await encrypt(issue.title, recipient.key),

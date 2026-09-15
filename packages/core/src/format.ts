@@ -11,9 +11,17 @@ export const HEADER_BYTES = 1 + FPR_BYTES + EPH_PUB_BYTES;
 export const GCM_TAG_BYTES = 16;
 export const MIN_ENVELOPE_BYTES = HEADER_BYTES + GCM_TAG_BYTES;
 
-const TOKEN_RE = /ENTZ1:[A-Za-z0-9_-]+/g;
+const TOKEN_PATTERN = `${MARKER}[A-Za-z0-9_-]+`;
 
 const B64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+const B64URL_VALUES = ((): Int8Array => {
+  const table = new Int8Array(128).fill(-1);
+  for (let i = 0; i < B64URL_ALPHABET.length; i++) {
+    table[B64URL_ALPHABET.charCodeAt(i)] = i;
+  }
+  return table;
+})();
 
 export function b64urlEncode(bytes: Uint8Array): string {
   let out = "";
@@ -39,7 +47,8 @@ export function b64urlDecode(s: string): Uint8Array {
   let bits = 0;
   let o = 0;
   for (let i = 0; i < n; i++) {
-    const v = B64URL_ALPHABET.indexOf(s[i] as string);
+    const c = s.charCodeAt(i);
+    const v = c < 128 ? (B64URL_VALUES[c] as number) : -1;
     if (v < 0) throw new EntzifferError("BAD_BASE64", `invalid base64url character at ${i}`);
     acc = (acc << 6) | v;
     bits += 6;
@@ -66,14 +75,11 @@ export interface TokenMatch {
  * mid-sentence or be followed by punctuation.
  */
 export function findTokens(text: string): TokenMatch[] {
-  const out: TokenMatch[] = [];
-  TOKEN_RE.lastIndex = 0;
-  for (;;) {
-    const m = TOKEN_RE.exec(text);
-    if (m === null) break;
-    out.push({ start: m.index, end: m.index + m[0].length, token: m[0] });
-  }
-  return out;
+  return Array.from(text.matchAll(new RegExp(TOKEN_PATTERN, "g")), (m) => ({
+    start: m.index,
+    end: m.index + m[0].length,
+    token: m[0],
+  }));
 }
 
 export interface Envelope {
@@ -83,11 +89,18 @@ export interface Envelope {
   ct: Uint8Array;
 }
 
-export function encodeEnvelope(env: Envelope): Uint8Array {
-  const out = new Uint8Array(HEADER_BYTES + env.ct.length);
+/** The {@link HEADER_BYTES}-byte prefix that every ENTZ1 envelope authenticates as AES-GCM AAD. */
+export function encodeHeader(env: Omit<Envelope, "ct">): Uint8Array {
+  const out = new Uint8Array(HEADER_BYTES);
   out[0] = env.ver;
   out.set(env.fpr, 1);
   out.set(env.ephPub, 1 + FPR_BYTES);
+  return out;
+}
+
+export function encodeEnvelope(env: Envelope): Uint8Array {
+  const out = new Uint8Array(HEADER_BYTES + env.ct.length);
+  out.set(encodeHeader(env), 0);
   out.set(env.ct, HEADER_BYTES);
   return out;
 }
@@ -109,8 +122,8 @@ export function parseEnvelope(token: string): Envelope {
   }
   return {
     ver,
-    fpr: bytes.slice(1, 1 + FPR_BYTES),
-    ephPub: bytes.slice(1 + FPR_BYTES, HEADER_BYTES),
-    ct: bytes.slice(HEADER_BYTES),
+    fpr: bytes.subarray(1, 1 + FPR_BYTES),
+    ephPub: bytes.subarray(1 + FPR_BYTES, HEADER_BYTES),
+    ct: bytes.subarray(HEADER_BYTES),
   };
 }

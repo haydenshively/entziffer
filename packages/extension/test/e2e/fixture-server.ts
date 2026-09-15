@@ -99,6 +99,12 @@ const html = readFileSync(new URL("./fixture.html", import.meta.url), "utf8").re
   (_, name: string) => token(name),
 );
 
+/** Same origin as the fixture: a cross-origin editor bundle would not share its document. */
+const EDITOR_PATH = "/fixture-editor.js";
+
+const editorBundle = (): Buffer =>
+  readFileSync(new URL("../../dist-e2e/fixture-editor.js", import.meta.url));
+
 export interface FixtureServer {
   url: string;
   close(): Promise<void>;
@@ -106,7 +112,12 @@ export interface FixtureServer {
 
 /** Content scripts are never injected into `file://` pages, so the fixture needs a real origin. */
 export async function startFixtureServer(): Promise<FixtureServer> {
-  const server: Server = createServer((_req, res) => {
+  const server: Server = createServer((req, res) => {
+    if (req.url === EDITOR_PATH) {
+      res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
+      res.end(editorBundle());
+      return;
+    }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(html);
   });

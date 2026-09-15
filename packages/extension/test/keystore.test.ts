@@ -2,10 +2,11 @@ import "fake-indexeddb/auto";
 import { DERIVATION_VERSION } from "@entziffer/core";
 import { IDBFactory } from "fake-indexeddb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { RESET_NOTICE_KEY } from "../src/shared/messages.js";
 import {
   clearKey,
   clearSession,
-  RESET_NOTICE_KEY,
+  closeDb,
   readKey,
   readSession,
   writeKey,
@@ -46,6 +47,7 @@ function seedOldDatabase(version: number, record: Record<string, unknown>): Prom
 }
 
 beforeEach(() => {
+  closeDb();
   globalThis.indexedDB = new IDBFactory();
   localStorageSet = vi.fn();
   (globalThis as Record<string, unknown>).chrome = { storage: { local: { set: localStorageSet } } };

@@ -1,13 +1,7 @@
+/** ENTZ1 sealing and opening; docs/format.md is normative for every layout and constant here. */
 import { subtle } from "./crypto.js";
-import { EntzifferError } from "./errors.js";
-import {
-  type Envelope,
-  EPH_PUB_BYTES,
-  encodeEnvelope,
-  encodeToken,
-  HEADER_BYTES,
-  parseEnvelope,
-} from "./format.js";
+import { EntzifferError, type EntzifferErrorCode } from "./errors.js";
+import { type Envelope, encodeHeader, encodeToken, parseEnvelope, VERSION } from "./format.js";
 import { ALGORITHM, type EntzPublicKey, generateKeyPair } from "./keys.js";
 
 const INFO_PREFIX = new TextEncoder().encode("entziffer-v1");
@@ -22,7 +16,7 @@ export interface DecryptSuccess {
 
 export interface DecryptFailure {
   ok: false;
-  code: string;
+  code: EntzifferErrorCode;
 }
 
 export type DecryptResult = DecryptSuccess | DecryptFailure;
@@ -61,9 +55,8 @@ export async function encryptWithEphemeralKey(
   ephPair: CryptoKeyPair,
 ): Promise<string> {
   const ephPub = new Uint8Array(await subtle().exportKey("raw", ephPair.publicKey));
-  if (ephPub.length !== EPH_PUB_BYTES) throw new EntzifferError("BAD_KEY_STRING");
   const { key, nonce } = await deriveAesKeyAndNonce(ephPair.privateKey, to.key, ephPub, to.fpr);
-  const header = encodeEnvelope({ ver: 1, fpr: to.fpr, ephPub, ct: new Uint8Array(0) });
+  const header = encodeHeader({ ver: VERSION, fpr: to.fpr, ephPub });
   const ct = new Uint8Array(
     await subtle().encrypt(
       { name: "AES-GCM", iv: nonce as BufferSource, additionalData: header as BufferSource },
@@ -71,7 +64,7 @@ export async function encryptWithEphemeralKey(
       new TextEncoder().encode(plaintext) as BufferSource,
     ),
   );
-  return encodeToken({ ver: 1, fpr: to.fpr, ephPub, ct });
+  return encodeToken({ ver: VERSION, fpr: to.fpr, ephPub, ct });
 }
 
 export async function encrypt(plaintext: string, to: EntzPublicKey): Promise<string> {
@@ -88,17 +81,21 @@ export async function decrypt(token: string, priv: CryptoKey, ownFpr: Uint8Array
   if (!equalBytes(env.fpr, ownFpr)) {
     throw new EntzifferError("FPR_MISMATCH", "token is encrypted for a different key");
   }
-  const peer = await subtle().importKey("raw", env.ephPub as BufferSource, ALGORITHM, true, []);
-  const { key, nonce } = await deriveAesKeyAndNonce(priv, peer, env.ephPub, env.fpr);
-  const header = encodeEnvelope({ ...env, ct: new Uint8Array(0) }).subarray(0, HEADER_BYTES);
   let pt: ArrayBuffer;
   try {
+    const peer = await subtle().importKey("raw", env.ephPub as BufferSource, ALGORITHM, false, []);
+    const { key, nonce } = await deriveAesKeyAndNonce(priv, peer, env.ephPub, env.fpr);
     pt = await subtle().decrypt(
-      { name: "AES-GCM", iv: nonce as BufferSource, additionalData: header as BufferSource },
+      {
+        name: "AES-GCM",
+        iv: nonce as BufferSource,
+        additionalData: encodeHeader(env) as BufferSource,
+      },
       key,
       env.ct as BufferSource,
     );
-  } catch {
+  } catch (e) {
+    if (e instanceof EntzifferError) throw e;
     throw new EntzifferError("DECRYPT_FAILED", "authentication failed");
   }
   return new TextDecoder().decode(pt);
@@ -123,7 +120,6 @@ export async function decryptMany(
 
 function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= (a[i] as number) ^ (b[i] as number);
-  return diff === 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }

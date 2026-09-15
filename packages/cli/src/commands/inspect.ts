@@ -1,20 +1,15 @@
-import { parseArgs } from "node:util";
 import { formatFingerprint, GCM_TAG_BYTES, parseEnvelope } from "@entziffer/core";
-import { parsing, usageError } from "../errors.js";
+import { usageError } from "../errors.js";
 import { json, out } from "../io.js";
-import { GLOBAL_OPTIONS, globals } from "../options.js";
+import { parseCommand } from "../options.js";
 import { USAGE } from "../usage.js";
 
-export async function cmdInspect(args: string[]): Promise<void> {
-  const { values, positionals } = parsing(() =>
-    parseArgs({
-      args,
-      allowPositionals: true,
-      options: GLOBAL_OPTIONS,
-    }),
-  );
-  const g = globals(values);
-  if (g.help) return out(USAGE);
+export function cmdInspect(args: string[]): void {
+  const { positionals, ...g } = parseCommand(args);
+  if (g.help) {
+    out(USAGE);
+    return;
+  }
 
   const [token, ...extra] = positionals;
   if (token === undefined || extra.length > 0) throw usageError("usage: entziffer inspect <token>");

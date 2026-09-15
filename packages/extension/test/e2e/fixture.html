@@ -7,6 +7,7 @@
       body { font: 15px/1.6 system-ui, sans-serif; margin: 24px; max-width: 760px; }
       .row { padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; margin: 10px 0; }
       .ProseMirror { padding: 8px 10px; border: 2px solid #6a7; border-radius: 6px; }
+      #editable-para { font-size: 20px; font-weight: 500; letter-spacing: -0.01em; font-feature-settings: "tnum"; font-variant-numeric: tabular-nums; }
       #editable-narrow { width: 220px; white-space: pre-wrap; overflow-wrap: anywhere; }
     </style>
   </head>
@@ -25,12 +26,22 @@
       <p id="editable-multiline">__TOKEN_title-60__</p>
     </div>
 
+    <div id="pm-host">
+      <div id="pm-editor" data-text="Draft: __TOKEN_ascii-title__ (still editing)"></div>
+    </div>
+
     <p id="foreign">Someone else's: __TOKEN_foreign__</p>
+
+    <p><a id="linked" href="/somewhere-else">__TOKEN_ascii-title__</a></p>
 
     <div id="dynamic"></div>
     <button id="insert" type="button">Insert token</button>
 
+    <script src="/fixture-editor.js"></script>
     <script>
+      document.getElementById("linked").addEventListener("mousedown", () => {
+        window.__pressed = true;
+      });
       document.getElementById("insert").addEventListener("click", () => {
         const p = document.createElement("p");
         p.id = "dynamic-para";

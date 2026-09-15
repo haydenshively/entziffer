@@ -3,8 +3,9 @@ import { clearSession, readSession, writeSession } from "./keystore.js";
 import { getSettings } from "./settings.js";
 
 const SENTINEL_KEY = "sessionAlive";
-const UNLOCK_TAB_KEY = "unlockTabId";
+const UNLOCK_WINDOW_KEY = "unlockWindowId";
 const AUTO_LOCK_ALARM = "entz-auto-lock";
+const AUTO_LOCK_SLACK_MS = 60_000;
 
 /**
  * `storage.session` is cleared by a browser restart and by an extension reload, neither of which
@@ -42,19 +43,24 @@ export async function lockNow(): Promise<void> {
   await broadcastLocked();
 }
 
+/** Rearms only when the armed alarm has drifted past {@link AUTO_LOCK_SLACK_MS}, so a burst of
+ * decrypts costs one `alarms.get` rather than a clear-and-create each. */
 export async function scheduleAutoLock(): Promise<void> {
   const { autoLockMinutes } = await getSettings();
+  const target = Date.now() + autoLockMinutes * 60_000;
+  const armed = await chrome.alarms.get(AUTO_LOCK_ALARM);
+  if (armed !== undefined && Math.abs(target - armed.scheduledTime) < AUTO_LOCK_SLACK_MS) return;
   await chrome.alarms.clear(AUTO_LOCK_ALARM);
   chrome.alarms.create(AUTO_LOCK_ALARM, { delayInMinutes: autoLockMinutes });
 }
 
-export async function rememberUnlockTab(tabId: number): Promise<void> {
-  await chrome.storage.session.set({ [UNLOCK_TAB_KEY]: tabId });
+export async function rememberUnlockWindow(windowId: number): Promise<void> {
+  await chrome.storage.session.set({ [UNLOCK_WINDOW_KEY]: windowId });
 }
 
-export async function unlockTabId(): Promise<number | undefined> {
-  const stored = await chrome.storage.session.get(UNLOCK_TAB_KEY);
-  const id = stored[UNLOCK_TAB_KEY];
+export async function unlockWindowId(): Promise<number | undefined> {
+  const stored = await chrome.storage.session.get(UNLOCK_WINDOW_KEY);
+  const id = stored[UNLOCK_WINDOW_KEY];
   return typeof id === "number" ? id : undefined;
 }
 

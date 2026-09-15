@@ -1,4 +1,5 @@
 import { DERIVATION_VERSION } from "@entziffer/core";
+import { RESET_NOTICE_KEY } from "../shared/messages.js";
 
 const DB_NAME = "entziffer";
 const DB_VERSION = 4;
@@ -26,9 +27,6 @@ export interface SessionRecord {
   privateKey: CryptoKey;
   unlockedAt: number;
 }
-
-/** Set when {@link openDb} drops pre-v3 records, so the options page can explain the reset once. */
-export const RESET_NOTICE_KEY = "keyStorageReset";
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -62,28 +60,64 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
+let connection: Promise<IDBDatabase> | undefined;
+
+function connect(): Promise<IDBDatabase> {
+  connection ??= openDb().then(
+    (db) => {
+      db.onclose = () => {
+        connection = undefined;
+      };
+      return db;
+    },
+    (e: unknown) => {
+      connection = undefined;
+      throw e;
+    },
+  );
+  return connection;
+}
+
+/** Drops the cached connection; tests swap the `indexedDB` factory out from under it. */
+export function closeDb(): void {
+  void connection?.then((db) => {
+    db.close();
+  });
+  connection = undefined;
+}
+
+function run<T>(
+  db: IDBDatabase,
+  store: string,
+  mode: IDBTransactionMode,
+  fn: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const tx = db.transaction(store, mode);
+    const req = fn(tx.objectStore(store));
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
 async function withStore<T>(
   store: string,
   mode: IDBTransactionMode,
   fn: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
-  const db = await openDb();
   try {
-    return await new Promise<T>((resolve, reject) => {
-      const tx = db.transaction(store, mode);
-      const req = fn(tx.objectStore(store));
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-      tx.onabort = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
+    return await run(await connect(), store, mode, fn);
+  } catch (e) {
+    if (!(e instanceof DOMException) || e.name !== "InvalidStateError") throw e;
+    closeDb();
+    return run(await connect(), store, mode, fn);
   }
 }
 
 /**
- * Reads the single stored key. The record is never cached in a module global: the service
- * worker is evicted at will, and a stale handle would outlive a key deletion.
+ * Reads the single stored key. The record is never cached in a module global — only the database
+ * connection is: the service worker is evicted at will, and a stale record would outlive a deletion.
  */
 export async function readKey(): Promise<KeyRecord | undefined> {
   const record = await withStore<KeyRecord | undefined>(KEYS_STORE, "readonly", (s) =>

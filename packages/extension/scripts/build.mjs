@@ -102,8 +102,28 @@ function contentConfig(outDir, e2e) {
   };
 }
 
+/** The real ProseMirror instance the E2E refuses edits against; E2E builds only. */
+function fixtureEditorConfig(outDir) {
+  const config = shared(outDir, true);
+  return {
+    ...config,
+    root: here(".."),
+    build: {
+      ...config.build,
+      emptyOutDir: false,
+      lib: {
+        entry: here("../test/e2e/fixture-editor.ts"),
+        formats: ["iife"],
+        name: "entzFixtureEditor",
+        fileName: () => "fixture-editor.js",
+      },
+    },
+  };
+}
+
 const e2e = process.argv.includes("--e2e");
 const outDir = e2e ? "dist-e2e" : "dist";
 
 await build(pagesConfig(outDir, e2e));
 await build(contentConfig(outDir, e2e));
+if (e2e) await build(fixtureEditorConfig(outDir));

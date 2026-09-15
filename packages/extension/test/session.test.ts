@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { readSession, writeSession } from "../src/sw/keystore.js";
+import { closeDb, readSession, writeSession } from "../src/sw/keystore.js";
 import {
   installSessionListeners,
   lockNow,
@@ -15,6 +15,7 @@ const key = (label: string): CryptoKey => ({ label }) as unknown as CryptoKey;
 interface AlarmStub {
   create: ReturnType<typeof vi.fn>;
   clear: ReturnType<typeof vi.fn>;
+  get: ReturnType<typeof vi.fn>;
   onAlarm: { addListener: (fn: (alarm: { name: string }) => void) => void };
 }
 
@@ -24,17 +25,26 @@ let alarmListeners: ((alarm: { name: string }) => void)[];
 let startupListeners: (() => void)[];
 let settings: Record<string, unknown>;
 let sentMessages: unknown[];
+let armed: { name: string; scheduledTime: number } | undefined;
 
 beforeEach(() => {
+  closeDb();
   globalThis.indexedDB = new IDBFactory();
   sessionStorage = {};
   alarmListeners = [];
   startupListeners = [];
   settings = { autoLockMinutes: 720 };
   sentMessages = [];
+  armed = undefined;
   alarms = {
-    create: vi.fn(),
-    clear: vi.fn(async () => true),
+    create: vi.fn((name: string, info: { delayInMinutes: number }) => {
+      armed = { name, scheduledTime: Date.now() + info.delayInMinutes * 60_000 };
+    }),
+    clear: vi.fn(async () => {
+      armed = undefined;
+      return true;
+    }),
+    get: vi.fn(async () => armed),
     onAlarm: { addListener: (fn) => alarmListeners.push(fn) },
   };
   (globalThis as Record<string, unknown>).chrome = {
@@ -46,6 +56,9 @@ beforeEach(() => {
       },
     },
     runtime: {
+      sendMessage: async (message: unknown) => {
+        sentMessages.push(message);
+      },
       onStartup: { addListener: (fn: () => void) => startupListeners.push(fn) },
       onInstalled: { addListener: (fn: () => void) => startupListeners.push(fn) },
     },
@@ -86,7 +99,7 @@ describe("session lock", () => {
   it("lockNow tells every tab to drop the plaintext it is showing", async () => {
     await unlockSession(key("k"));
     await lockNow();
-    expect(sentMessages).toEqual([{ type: "locked" }, { type: "locked" }]);
+    expect(sentMessages).toEqual([{ type: "locked" }, { type: "locked" }, { type: "locked" }]);
   });
 
   it("a session record without its sentinel is stale and gets deleted", async () => {
@@ -115,5 +128,19 @@ describe("session lock", () => {
     settings = { autoLockMinutes: 60 };
     await scheduleAutoLock();
     expect(alarms.create).toHaveBeenCalledWith("entz-auto-lock", { delayInMinutes: 60 });
+  });
+
+  it("leaves an alarm already armed at the same target alone", async () => {
+    await scheduleAutoLock();
+    await scheduleAutoLock();
+    expect(alarms.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rearms when the configured delay changes", async () => {
+    await scheduleAutoLock();
+    settings = { autoLockMinutes: 60 };
+    await scheduleAutoLock();
+    expect(alarms.create).toHaveBeenCalledTimes(2);
+    expect(alarms.create).toHaveBeenLastCalledWith("entz-auto-lock", { delayInMinutes: 60 });
   });
 });
