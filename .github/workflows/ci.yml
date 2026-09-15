@@ -49,13 +49,13 @@ jobs:
       - run: pnpm --filter @entziffer/extension exec playwright install --with-deps chromium
       - run: pnpm --filter @entziffer/extension test:e2e
       - run: pnpm --filter @entziffer/extension zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: entziffer-extension
           path: packages/extension/entziffer-extension-*.zip
           if-no-files-found: error
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: packages/extension/playwright-report
