@@ -50,10 +50,14 @@ back into Linear.
 
 ## Quick start (5 minutes)
 
-1. **Install the extension.** Download `entziffer-extension-<version>.zip` from the
-   [latest release](https://github.com/haydenshively/entziffer/releases/latest), unzip it,
-   then `chrome://extensions` → Developer mode → *Load unpacked* → pick the folder.
-   Chrome 133 or newer.
+1. **Install the extension.** It is not on the Chrome Web Store; it is loaded unpacked.
+   Download `entziffer-extension-<version>.zip` from the
+   [latest release](https://github.com/haydenshively/entziffer/releases/latest), unzip it
+   somewhere permanent, then `chrome://extensions` → Developer mode → *Load unpacked* → pick
+   the folder. Or build it yourself: `pnpm install && pnpm build`, then load
+   `packages/extension/dist`. Either way the card must show ID
+   `bgopgffcljkdlogpflimomjbfbmbaoap` (why: [docs/install.md](docs/install.md)). Chrome 133 or
+   newer.
 2. **Enable the sites you use.** A fresh install runs nowhere. On the options page, under
    *Sites*, add an origin (`https://linear.app` if you file Linear issues) — Chrome asks for
    permission on that origin only — or turn on *Enable on all sites*.
@@ -120,22 +124,29 @@ threat model.
 | `reference/` | `encrypt.mjs`, the auditable single-file implementation, plus cross-impl tests |
 | `skills/private-linear-issue` | The Claude Code skill |
 | `docs/` | [format](docs/format.md), [install](docs/install.md), [threat model](docs/threat-model.md) |
+| `CONTRIBUTING.md` | Local setup, dev loop, and how a release happens |
 
 ## Development
 
+Node ≥ 22 and pnpm 10 (`corepack enable` picks up the pinned version from `package.json`).
+
 ```sh
 pnpm install
-pnpm check          # lint, typecheck, build, then unit tests — in that order
-pnpm test:e2e       # Playwright against a real Chrome, needs chromium
-pnpm zip            # release artifact
+pnpm check          # lint, build, typecheck, then unit tests — in that order
+pnpm test:e2e       # Playwright against a real Chrome; first run:
+                    #   pnpm --filter @entziffer/extension exec playwright install --with-deps chromium
+pnpm zip            # the release artifact, packages/extension/entziffer-extension-<version>.zip
 node reference/encrypt.mjs --vectors   # audit the reference implementation
 ```
 
-`pnpm check` runs the steps in the order they depend on each other: the unit tests import
-`@entziffer/core` through its built `dist`, so `pnpm build` has to come first. The individual
-steps are still available as `pnpm lint`, `pnpm typecheck`, `pnpm build`, and `pnpm test`.
+`pnpm check` runs the steps in the order they depend on each other: the extension and the CLI
+typecheck against `@entziffer/core`'s built `dist`, and the unit tests import it, so `pnpm build`
+has to come first. The individual steps are still available as `pnpm lint`, `pnpm build`,
+`pnpm typecheck`, and `pnpm test`.
 
-Node ≥ 22, pnpm 10. CI runs everything above on every PR.
+To try the extension, load `packages/extension/dist` unpacked in `chrome://extensions`. There is
+no HMR: rebuild, press reload on the extension card, reload the page. Details, and the release
+process, in [CONTRIBUTING.md](CONTRIBUTING.md). CI runs everything above on every PR.
 
 ## License
 

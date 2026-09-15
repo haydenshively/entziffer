@@ -9,6 +9,7 @@
     "build": "node scripts/build.mjs",
     "build:e2e": "node scripts/build.mjs --e2e",
     "zip": "pnpm run build && node scripts/zip.mjs",
+    "icons": "node scripts/icons.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:e2e": "pnpm run build:e2e && playwright test"
   },
