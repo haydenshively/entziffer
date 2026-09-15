@@ -36,8 +36,9 @@ Re-run `pnpm --filter @entziffer/extension build`, then press the reload button 
 extension card in `chrome://extensions` and reload the page under test. Editing only the
 options or popup page needs a rebuild plus reopening that page, not an extension reload.
 
-`pnpm icons` re-rasterizes `icons/icon{16,48,128}.png` from `icons/icon.svg` with Playwright's
-Chromium; the PNGs are committed, so only run it after changing the SVG.
+`pnpm icons` re-rasterizes `icons/icon{16,48,128}.png` with Playwright's Chromium — 48 and 128
+from `icons/icon.svg`, 16 from `icons/icon-small.svg`, whose bezel-free tile and larger glyph
+stay legible in the toolbar. The PNGs are committed, so only run it after changing an SVG.
 
 `pnpm zip` rebuilds `dist/` and produces `entziffer-extension-<version>.zip` next to this
 README, ready for a GitHub release. It shells out to the `zip` CLI, which is preinstalled on
@@ -282,6 +283,7 @@ byte-for-byte copy of `manifest.json`, which declares neither.
 ```
 manifest.json                  copied verbatim into dist/
 icons/icon.svg                 the icon master; also the source of the header glyph paths
+icons/icon-small.svg           flat variant with a larger glyph, rasterized for 16px only
 icons/icon{16,48,128}.png      rasterized from icon.svg by `pnpm icons`, emitted into dist/icons/
 scripts/build.mjs              both Vite configs (ESM pages + IIFE content script) and the driver
 scripts/zip.mjs                release zip

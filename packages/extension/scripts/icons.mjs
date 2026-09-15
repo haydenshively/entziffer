@@ -4,14 +4,15 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 
 const here = (p) => join(dirname(fileURLToPath(import.meta.url)), p);
-const SIZES = [16, 48, 128];
+const SOURCES = { 16: "icon-small.svg", 48: "icon.svg", 128: "icon.svg" };
 
-const svg = readFileSync(here("../icons/icon.svg"), "utf8");
-const src = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+const dataUri = (file) =>
+  `data:image/svg+xml;base64,${Buffer.from(readFileSync(here(`../icons/${file}`))).toString("base64")}`;
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ deviceScaleFactor: 1 });
-for (const size of SIZES) {
+for (const [size, file] of Object.entries(SOURCES).map(([s, f]) => [Number(s), f])) {
+  const src = dataUri(file);
   await page.setViewportSize({ width: size, height: size });
   await page.setContent(
     `<style>html,body{margin:0;background:transparent}img{display:block;width:${size}px;height:${size}px}</style><img src="${src}">`,
